@@ -1,18 +1,23 @@
 {
   "expo": {
-    "name": "barca-app",
+    "name": "BCN Social",
     "slug": "barca-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#A50044"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.romainlgs.barca-app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "GADApplicationIdentifier": "ca-app-pub-1040134367659445~4644102991"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -25,6 +30,29 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#A50044",
+          "sounds": []
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "iosAppId": "ca-app-pub-1040134367659445~4644102991"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a5a8f932-8586-4dea-8571-51c41960c37c"
+      }
+    },
+    "owner": "romainlgs"
   }
 }

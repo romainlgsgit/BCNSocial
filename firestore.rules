@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Posts et commentaires : lecture publique, écriture authentifiée
+    match /posts/{postId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow write: if request.auth != null;
+      }
+    }
+
+    // Profils utilisateurs
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Config app (cotes, etc.)
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Paris / pronostics
+    match /bets/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Score live partagé entre tous les users
+    match /liveMatch/{docId} {
+      allow read, write: if true;
+    }
+
+    // Compositions validées par l'admin : lecture publique, écriture admin uniquement
+    match /lineups/{matchId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.email == 'legrosromain27@gmail.com';
+    }
+
+    // Votes des utilisateurs : lecture par tout user connecté (pour profils publics), écriture uniquement par le propriétaire
+    match /userVotes/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Stats agrégées des joueurs : lecture publique, écriture par tout user connecté (transactions)
+    match /playerStats/{playerId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Stats agrégées des matchs : lecture publique, écriture par tout user connecté (transactions)
+    match /matchStats/{matchId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Résultats de match utilisés pour régler les paris
+    match /matchResults/{matchId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == 'legrosromain27@gmail.com';
+    }
+
+    // Abonnements : lecture par user connecté, création/suppression par le followerId
+    match /follows/{followId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.followerId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.followerId;
+    }
+
+  }
+}
