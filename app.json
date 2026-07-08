@@ -14,9 +14,16 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.romainlgs.barca-app",
+      "buildNumber": "1",
+      "privacyManifests": {
+        "NSPrivacyCollectedDataTypes": []
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "GADApplicationIdentifier": "ca-app-pub-1040134367659445~4644102991"
+        "GADApplicationIdentifier": "ca-app-pub-1040134367659445~4644102991",
+        "NSUserTrackingUsageDescription": "Cette autorisation permet d'afficher des publicités plus pertinentes pour soutenir l'application.",
+        "NSPhotoLibraryUsageDescription": "Permet d'ajouter une photo à tes publications.",
+        "NSCameraUsageDescription": "Permet de prendre une photo de profil."
       }
     },
     "android": {
