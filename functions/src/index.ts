@@ -177,10 +177,53 @@ export const pollLiveMatch = onSchedule('every 1 minutes', async () => {
 
   const homeScore: number = f.goals.home ?? 0;
   const awayScore: number = f.goals.away ?? 0;
+  const minute: number | null = f.fixture.status.elapsed ?? null;
+
+  // ── Détecter un but ──
+  const prevHome = current?.homeScore as number | null;
+  const prevAway = current?.awayScore as number | null;
+  const goalScored =
+    prevHome !== null &&
+    prevAway !== null &&
+    status === 'IN_PLAY' &&
+    (homeScore > prevHome || awayScore > prevAway);
+
+  if (goalScored) {
+    const barcaScored = homeScore > (prevHome ?? 0);
+    const scorerLabel = barcaScored ? '⚽ But du Barça !' : '⚽ But de l\'adversaire';
+    const scoreLabel = `${homeScore} - ${awayScore}${minute ? ` (${minute}')` : ''}`;
+
+    // Récupérer tous les utilisateurs avec liveNotifEnabled = true et un token
+    const usersSnap = await db.collection('users')
+      .where('liveNotifEnabled', '==', true)
+      .get();
+
+    const tokens: string[] = [];
+    usersSnap.docs.forEach(d => {
+      const token = d.data().expoPushToken as string | undefined;
+      if (token && token.startsWith('ExponentPushToken')) tokens.push(token);
+    });
+
+    if (tokens.length > 0) {
+      const messages = tokens.map(to => ({
+        to,
+        title: scorerLabel,
+        body: `FC Barcelona ${scoreLabel}`,
+        sound: 'default',
+        data: { type: 'goal', matchId },
+      }));
+
+      await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(messages),
+      });
+    }
+  }
 
   await db.doc('liveMatch/current').set({
     status, homeScore, awayScore,
-    minute: f.fixture.status.elapsed ?? null,
+    minute,
     matchId,
     updatedAt: FieldValue.serverTimestamp(),
   });
@@ -195,3 +238,4 @@ export const pollLiveMatch = onSchedule('every 1 minutes', async () => {
     }
   }
 });
+

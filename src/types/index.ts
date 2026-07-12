@@ -37,6 +37,7 @@ export interface Player {
   nationality: string;
   averageRating: number;
   totalVotes: number;
+  photoUrl?: string; // photo custom (admin ou Wikipedia)
 }
 
 export interface Pronostic {
@@ -66,6 +67,9 @@ export interface User {
   avatar: string;
   photoBase64?: string;
   verified?: boolean;
+  liveNotifEnabled?: boolean;
+  mentionNotifEnabled?: boolean;
+  lastUsernameChange?: string;
   coins: number;
   points: number;
   pronostics: Pronostic[];
@@ -73,6 +77,11 @@ export interface User {
 }
 
 export type PostTag = 'match' | 'opinion' | 'news';
+
+export interface MentionUser {
+  id: string;
+  username: string;
+}
 
 export interface Post {
   id: string;
@@ -82,6 +91,8 @@ export interface Post {
   avatarPhoto?: string;
   verified?: boolean;
   content: string;
+  imageBase64?: string;
+  mentionedUsers?: MentionUser[];
   likedBy: string[];
   comments: number;
   createdAt: string;

@@ -1,12 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
-import { Colors } from '../theme';
-
-// ← Remplacer par ton vrai ID AdMob iOS en production
-const UNIT_ID = __DEV__
-  ? TestIds.BANNER
-  : 'ca-app-pub-1040134367659445/2707582671';
+import { AdView, AdFormat } from 'react-native-applovin-max';
+import { AD_UNITS, ADS_CONFIGURED } from '../config/ads';
+import { usePremium } from '../context/PremiumContext';
 
 interface Props {
   style?: ViewStyle;
@@ -14,8 +10,9 @@ interface Props {
 
 export default function AdBanner({ style }: Props) {
   const [failed, setFailed] = useState(false);
+  const { isPremium } = usePremium();
 
-  if (failed) return null;
+  if (!ADS_CONFIGURED || failed || isPremium) return null;
 
   return (
     <View style={[styles.container, style]}>
@@ -24,11 +21,12 @@ export default function AdBanner({ style }: Props) {
         <Text style={styles.label}>PUB</Text>
         <View style={styles.line} />
       </View>
-      <BannerAd
-        unitId={UNIT_ID}
-        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
-        requestOptions={{ requestNonPersonalizedAdsOnly: false }}
-        onAdFailedToLoad={() => setFailed(true)}
+      <AdView
+        adUnitId={AD_UNITS.banner}
+        adFormat={AdFormat.BANNER}
+        adaptiveBannerEnabled
+        style={styles.banner}
+        onAdLoadFailed={() => setFailed(true)}
       />
     </View>
   );
@@ -58,5 +56,10 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '700',
     letterSpacing: 1,
+  },
+  // Bannière adaptative : 320×50 (téléphone) / 728×90 (tablette)
+  banner: {
+    width: '100%',
+    height: 60,
   },
 });

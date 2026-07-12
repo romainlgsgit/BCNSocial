@@ -15,10 +15,11 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { collection, query, where, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, deleteDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +31,8 @@ import { useRatings } from '../context/RatingsContext';
 import { useFeaturedMatch } from '../context/MatchContext';
 import { PLAYERS, MATCHES } from '../data/mockData';
 import { getRatingColor } from '../components/VotingWidget';
+import { getLevelInfo } from '../utils/levels';
+import { usePremium } from '../context/PremiumContext';
 
 type Tab = 'login' | 'register';
 type ProfileTabType = 'publications' | 'pronos' | 'notes';
@@ -68,104 +71,121 @@ function AuthForm() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={styles.authContainer}
     >
-      <LinearGradient
-        colors={[Colors.primary, '#6B0030']}
-        style={styles.authHeader}
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.authHeaderEmoji}>🦁</Text>
-        <Text style={styles.authHeaderTitle}>
-          {tab === 'login' ? 'Bon retour !' : 'Rejoins la Culer Nation !'}
-        </Text>
-        <Text style={styles.authHeaderSub}>
-          {tab === 'login'
-            ? 'Connecte-toi pour accéder à ton compte'
-            : '200 pièces offertes à l\'inscription 🪙'}
-        </Text>
-      </LinearGradient>
+        <LinearGradient
+          colors={[Colors.primary, '#6B0030']}
+          style={styles.authHeader}
+        >
+          <View style={styles.authHeaderIcon}>
+            <Ionicons name="football" size={32} color="#fff" />
+          </View>
+          <Text style={styles.authHeaderTitle}>
+            {tab === 'login' ? 'Bon retour !' : 'Rejoins la Culer Nation !'}
+          </Text>
+          <Text style={styles.authHeaderSub}>
+            {tab === 'login'
+              ? 'Connecte-toi pour accéder à ton compte'
+              : '200 pièces offertes à l\'inscription 🪙'}
+          </Text>
+        </LinearGradient>
 
-      {/* Tabs */}
-      <View style={styles.tabRow}>
-        {(['login', 'register'] as Tab[]).map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
-            onPress={() => { setTab(t); setError(''); }}
-          >
-            <Text style={[styles.tabBtnText, tab === t && styles.tabBtnTextActive]}>
-              {t === 'login' ? 'Connexion' : 'Inscription'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        {/* Tabs */}
+        <View style={styles.tabRow}>
+          {(['login', 'register'] as Tab[]).map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
+              onPress={() => { setTab(t); setError(''); }}
+            >
+              <Text style={[styles.tabBtnText, tab === t && styles.tabBtnTextActive]}>
+                {t === 'login' ? 'Connexion' : 'Inscription'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-      <View style={styles.formContainer}>
-        {tab === 'register' && (
+        <View style={styles.formContainer}>
+          {tab === 'register' && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Pseudo</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="ton_pseudo"
+                placeholderTextColor={Colors.textMuted}
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+              />
+            </View>
+          )}
+
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Pseudo</Text>
+            <Text style={styles.inputLabel}>Email</Text>
             <TextInput
               style={styles.input}
-              placeholder="ton_pseudo"
+              placeholder="email@exemple.com"
               placeholderTextColor={Colors.textMuted}
-              value={username}
-              onChangeText={setUsername}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
               autoCapitalize="none"
             />
           </View>
-        )}
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="email@exemple.com"
-            placeholderTextColor={Colors.textMuted}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Mot de passe</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="••••••••"
-            placeholderTextColor={Colors.textMuted}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        {error !== '' && (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>⚠️ {error}</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Mot de passe</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="••••••••"
+              placeholderTextColor={Colors.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
           </View>
-        )}
 
-        <TouchableOpacity
-          style={styles.submitBtn}
-          onPress={handleSubmit}
-          disabled={isLoading}
-          activeOpacity={0.85}
-        >
-          {isLoading ? (
-            <ActivityIndicator color={Colors.text} />
-          ) : (
-            <Text style={styles.submitBtnText}>
-              {tab === 'login' ? 'Se connecter' : 'Créer mon compte'}
-            </Text>
+          {error !== '' && (
+            <View style={styles.errorBox}>
+              <Ionicons name="warning-outline" size={15} color={Colors.error} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
           )}
-        </TouchableOpacity>
-      </View>
+
+          <TouchableOpacity
+            style={styles.submitBtn}
+            onPress={handleSubmit}
+            disabled={isLoading}
+            activeOpacity={0.85}
+          >
+            {isLoading ? (
+              <ActivityIndicator color={Colors.text} />
+            ) : (
+              <Text style={styles.submitBtnText}>
+                {tab === 'login' ? 'Se connecter' : 'Créer mon compte'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
+const PROFILE_TABS: { key: ProfileTabType; label: string; icon: any; iconOutline: any }[] = [
+  { key: 'publications', label: 'Posts',  icon: 'chatbubble-ellipses',   iconOutline: 'chatbubble-ellipses-outline' },
+  { key: 'pronos',       label: 'Pronos', icon: 'trophy',                iconOutline: 'trophy-outline' },
+  { key: 'notes',        label: 'Notes',  icon: 'star',                  iconOutline: 'star-outline' },
+];
+
 function ProfileDashboard() {
-  const { user, logout, isAdmin, updatePhoto } = useAuth();
+  const { user, logout, deleteAccount, isAdmin, updatePhoto } = useAuth();
+  const { isPremium, openPremiumScreen } = usePremium();
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [profileTab, setProfileTab] = useState<ProfileTabType>('publications');
@@ -264,27 +284,68 @@ function ProfileDashboard() {
 
   if (!user) return null;
 
-  const stats = [
-    { label: 'Pièces', value: user.coins, icon: 'wallet-outline' as const, color: Colors.gold, highlight: true },
-    { label: 'Points', value: user.points, icon: 'star-outline' as const, color: Colors.primary, highlight: false },
-    { label: 'Pronos', value: Object.keys(betsMap).length, icon: 'trophy-outline' as const, color: Colors.secondary, highlight: false },
-  ];
+  const renderBet = ([matchId, bet]: [string, any]) => {
+    const match = allMatches.find(m => m.id === matchId);
+    const predLabel = bet.prediction === 'home' ? 'Domicile' : bet.prediction === 'draw' ? 'Nul' : 'Extérieur';
+    const isWon = bet.result === 'won';
+    const isLost = bet.result === 'lost';
+    const resultColor = isWon ? Colors.win : isLost ? Colors.loss : Colors.textMuted;
+    const resultLabel = isWon ? `+${bet.wonAmount} 🪙` : isLost ? '0 🪙' : null;
+    return (
+      <View key={matchId} style={styles.pronoRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.pronoMatch}>
+            {match ? `${match.homeTeam.shortName} – ${match.awayTeam.shortName}` : `Match #${matchId}`}
+          </Text>
+          <Text style={styles.pronoMeta}>{predLabel} · Misé : {bet.coins} 🪙</Text>
+        </View>
+        {bet.result === undefined ? (
+          <View style={styles.pronoBadgePending}>
+            <Ionicons name="time-outline" size={12} color={Colors.textMuted} />
+            <Text style={styles.pronoBadgePendingText}>En attente</Text>
+          </View>
+        ) : (
+          <View style={[styles.pronoBadgeResult, { borderColor: resultColor + '55', backgroundColor: resultColor + '18' }]}>
+            <Ionicons name={isWon ? 'checkmark-circle' : 'close-circle'} size={13} color={resultColor} />
+            <Text style={[styles.pronoBadgeResultText, { color: resultColor }]}>
+              {isWon ? 'Gagné' : 'Perdu'}
+            </Text>
+            {resultLabel && <Text style={[styles.pronoBadgeAmount, { color: resultColor }]}>{resultLabel}</Text>}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false}>
-      {/* Avatar + nom */}
+    <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[1]}>
+
+      {/* ── Header ── */}
       <LinearGradient
-        colors={[Colors.primary, '#6B0030', Colors.background]}
+        colors={['#6B0030', Colors.primary, '#1A0010', Colors.background]}
+        locations={[0, 0.25, 0.65, 1]}
         style={styles.profileHeader}
       >
+        {/* Bouton Réglages */}
+        <TouchableOpacity
+          style={[styles.settingsBtn, { top: insets.top + 10 }]}
+          onPress={() => navigation.navigate('Settings')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="settings-outline" size={20} color="rgba(255,255,255,0.85)" />
+        </TouchableOpacity>
+
+        {/* Avatar éditable */}
         <TouchableOpacity onPress={handlePickPhoto} activeOpacity={0.8} style={styles.avatarWrapper}>
-          {user.photoBase64 ? (
-            <Image source={{ uri: `data:image/jpeg;base64,${user.photoBase64}` }} style={styles.avatarImage} />
-          ) : (
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{user.avatar}</Text>
-            </View>
-          )}
+          <View style={styles.avatarRing}>
+            {user.photoBase64 ? (
+              <Image source={{ uri: `data:image/jpeg;base64,${user.photoBase64}` }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatarInner}>
+                <Text style={styles.avatarText}>{user.avatar}</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.avatarEditBadge}>
             {uploadingPhoto
               ? <ActivityIndicator size="small" color="#fff" />
@@ -292,185 +353,132 @@ function ProfileDashboard() {
             }
           </View>
         </TouchableOpacity>
+
+        {/* Nom + badge */}
         <View style={styles.profileUsernameRow}>
           <Text style={styles.profileUsername}>{user.username}</Text>
-          {user.verified && <VerifiedBadge size={20} />}
+          {user.verified && isPremium && <VerifiedBadge size={20} />}
         </View>
         <Text style={styles.profileEmail}>{user.email}</Text>
-        <Text style={styles.profileJoined}>
-          Membre depuis {new Date(user.joinedAt).toLocaleDateString('fr-FR', {
-            month: 'long',
-            year: 'numeric',
-          })}
-        </Text>
-        {isAdmin && (
-          <TouchableOpacity
-            style={styles.adminBtn}
-            onPress={() => navigation.navigate('Admin')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.adminBtnText}>🛡️ Panel Admin</Text>
-          </TouchableOpacity>
-        )}
-      </LinearGradient>
 
-      {/* Stats + Abonnés */}
-      <View style={styles.statsRow}>
-        {stats.map((s) => (
-          <View key={s.label} style={[styles.statCard, s.highlight && styles.statCardHighlight]}>
-            <Ionicons name={s.icon} size={18} color={s.color} />
-            <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>
-            <Text style={styles.statLabel}>{s.label}</Text>
+        {/* Pièces */}
+        <View style={styles.coinsPill}>
+          <Ionicons name="wallet" size={16} color={Colors.gold} />
+          <Text style={styles.coinsValue}>{user.coins ?? 0}</Text>
+          <Text style={styles.coinsLabel}>pièces</Text>
+        </View>
+
+        {/* Compteurs */}
+        <View style={styles.countsContainer}>
+          <View style={styles.countItem}>
+            <Text style={styles.countValue}>{myFollowersCount}</Text>
+            <Text style={styles.countLabel}>Abonnés</Text>
           </View>
-        ))}
-      </View>
-
-      {/* Abonnés / Abonnements */}
-      <View style={styles.followRow}>
-        <View style={styles.followItem}>
-          <Ionicons name="people-outline" size={16} color={Colors.textSecondary} />
-          <Text style={styles.followValue}>{myFollowersCount}</Text>
-          <Text style={styles.followLabel}>Abonnés</Text>
+          <View style={styles.countSep} />
+          <View style={styles.countItem}>
+            <Text style={styles.countValue}>{myFollowingCount}</Text>
+            <Text style={styles.countLabel}>Abonnements</Text>
+          </View>
+          <View style={styles.countSep} />
+          <View style={styles.countItem}>
+            <Text style={styles.countValue}>{myPosts.length}</Text>
+            <Text style={styles.countLabel}>Posts</Text>
+          </View>
         </View>
-        <View style={styles.followDivider} />
-        <View style={styles.followItem}>
-          <Ionicons name="person-add-outline" size={16} color={Colors.textSecondary} />
-          <Text style={styles.followValue}>{myFollowingCount}</Text>
-          <Text style={styles.followLabel}>Abonnements</Text>
-        </View>
-      </View>
 
-      {/* Onglets profil — glass */}
-      <View style={styles.profileTabRow}>
-        {([
-          { key: 'publications', label: 'Posts', icon: 'chatbubble-ellipses', iconOutline: 'chatbubble-ellipses-outline' },
-          { key: 'pronos', label: 'Pronos', icon: 'trophy', iconOutline: 'trophy-outline' },
-          { key: 'notes', label: 'Notes', icon: 'star', iconOutline: 'star-outline' },
-        ] as { key: ProfileTabType; label: string; icon: any; iconOutline: any }[]).map(t => {
-          const active = profileTab === t.key;
-          return (
-            <TouchableOpacity
-              key={t.key}
-              style={[styles.profileTabBtn, active && styles.profileTabBtnActive]}
-              onPress={() => setProfileTab(t.key)}
-            >
-              <Ionicons
-                name={active ? t.icon : t.iconOutline}
-                size={15}
-                color={active ? '#fff' : Colors.textSecondary}
-              />
-              <Text style={[styles.profileTabText, active && styles.profileTabTextActive]}>
-                {t.label}
-              </Text>
+        {/* Premium / Admin */}
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {!isPremium && (
+            <TouchableOpacity style={styles.premiumBtn} onPress={openPremiumScreen} activeOpacity={0.85}>
+              <Ionicons name="diamond" size={13} color={Colors.gold} />
+              <Text style={styles.premiumBtnText}>Passer Premium</Text>
             </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Publications */}
-      {profileTab === 'publications' && (
-        <View style={styles.section}>
-          {myPosts.length === 0 ? (
-            <View style={styles.emptyBox}>
-              <Ionicons name="chatbubble-ellipses-outline" size={36} color={Colors.textMuted} />
-              <Text style={styles.emptyText}>
-                Tu n'as pas encore publié.{'\n'}Va dans l'onglet Accueil !
-              </Text>
-            </View>
-          ) : (
-            myPosts.map((p) => (
-              <PostCard key={p.id} post={p} onDelete={() => handleDeletePost(p.id)} />
-            ))
+          )}
+          {isPremium && (
+            <TouchableOpacity style={styles.premiumActiveBadge} onPress={openPremiumScreen} activeOpacity={0.85}>
+              <Ionicons name="diamond" size={13} color={Colors.gold} />
+              <Text style={styles.premiumActiveBadgeText}>Premium actif ✨</Text>
+            </TouchableOpacity>
+          )}
+          {isAdmin && (
+            <TouchableOpacity style={styles.adminBtn} onPress={() => navigation.navigate('Admin')} activeOpacity={0.8}>
+              <Ionicons name="shield-checkmark-outline" size={13} color="#60A5FA" />
+              <Text style={styles.adminBtnText}>Admin</Text>
+            </TouchableOpacity>
           )}
         </View>
-      )}
+      </LinearGradient>
 
-      {/* Pronos */}
-      {profileTab === 'pronos' && (() => {
-        const allBets = Object.entries(betsMap);
-        const pending = allBets.filter(([, b]) => b.result === undefined);
-        const settled = allBets
-          .filter(([, b]) => b.result !== undefined)
-          .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0));
+      {/* ── Tab bar (sticky) ── */}
+      <View style={styles.tabBarWrap}>
+        <View style={styles.profileTabRow}>
+          {PROFILE_TABS.map(t => {
+            const active = profileTab === t.key;
+            return (
+              <TouchableOpacity
+                key={t.key}
+                style={[styles.profileTabBtn, active && styles.profileTabBtnActive]}
+                onPress={() => setProfileTab(t.key)}
+                activeOpacity={0.75}
+              >
+                <Ionicons name={active ? t.icon : t.iconOutline} size={15} color={active ? '#fff' : Colors.textSecondary} />
+                <Text style={[styles.profileTabText, active && styles.profileTabTextActive]}>{t.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
 
-        if (allBets.length === 0) {
-          return (
-            <View style={styles.section}>
+      {/* ── Contenu ── */}
+      <View style={styles.content}>
+
+        {/* Publications */}
+        {profileTab === 'publications' && (
+          <View style={{ marginHorizontal: -Spacing.md }}>
+            {myPosts.length === 0 ? (
               <View style={styles.emptyBox}>
-                <Ionicons name="trophy-outline" size={36} color={Colors.textMuted} />
-                <Text style={styles.emptyText}>
-                  Tu n'as pas encore fait de pronostic.{'\n'}Va dans l'onglet Pronos !
-                </Text>
-              </View>
-            </View>
-          );
-        }
-
-        const renderBet = ([matchId, bet]: [string, any]) => {
-          const match = allMatches.find(m => m.id === matchId);
-          const predLabel = bet.prediction === 'home' ? 'Domicile' : bet.prediction === 'draw' ? 'Nul' : 'Extérieur';
-          const isWon = bet.result === 'won';
-          const isLost = bet.result === 'lost';
-          const resultColor = isWon ? Colors.win : isLost ? Colors.loss : Colors.textMuted;
-          const resultLabel = isWon ? `+${bet.wonAmount} 🪙` : isLost ? '0 🪙' : null;
-
-          return (
-            <View key={matchId} style={styles.pronoRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.pronoMatch}>
-                  {match ? `${match.homeTeam.shortName} – ${match.awayTeam.shortName}` : `Match #${matchId}`}
-                </Text>
-                <Text style={styles.pronoMeta}>{predLabel} · Misé : {bet.coins} 🪙</Text>
-              </View>
-              {bet.result === undefined ? (
-                <View style={styles.pronoBadgePending}>
-                  <Ionicons name="time-outline" size={12} color={Colors.textMuted} />
-                  <Text style={styles.pronoBadgePendingText}>En attente</Text>
-                </View>
-              ) : (
-                <View style={[styles.pronoBadgeResult, { borderColor: resultColor + '55', backgroundColor: resultColor + '18' }]}>
-                  <Ionicons name={isWon ? 'checkmark-circle' : 'close-circle'} size={13} color={resultColor} />
-                  <Text style={[styles.pronoBadgeResultText, { color: resultColor }]}>
-                    {isWon ? 'Gagné' : 'Perdu'}
-                  </Text>
-                  {resultLabel && <Text style={[styles.pronoBadgeAmount, { color: resultColor }]}>{resultLabel}</Text>}
-                </View>
-              )}
-            </View>
-          );
-        };
-
-        return (
-          <View style={styles.section}>
-            {settled.length === 0 ? (
-              <View style={styles.emptyBox}>
-                <Ionicons name="trophy-outline" size={36} color={Colors.textMuted} />
-                <Text style={styles.emptyText}>
-                  Aucun pari terminé pour l'instant.
-                </Text>
+                <Ionicons name="chatbubble-ellipses-outline" size={36} color={Colors.textMuted} />
+                <Text style={styles.emptyText}>Tu n'as pas encore publié.{'\n'}Va dans l'onglet Accueil !</Text>
               </View>
             ) : (
-              <>
-                <View style={styles.notesSubtitleRow}>
-                  <Ionicons name="receipt-outline" size={13} color={Colors.textSecondary} />
-                  <Text style={styles.notesSubtitle}>5 derniers paris</Text>
-                </View>
-                {settled.map(renderBet)}
-              </>
+              myPosts.map(p => <PostCard key={p.id} post={p} onDelete={() => handleDeletePost(p.id)} />)
             )}
           </View>
-        );
-      })()}
+        )}
 
-      {/* Notes */}
-      {profileTab === 'notes' && (
-        <View style={styles.section}>
-          {ratedMatchesData.length === 0 && ratedPlayersData.length === 0 ? (
+        {/* Pronos */}
+        {profileTab === 'pronos' && (() => {
+          const settled = Object.entries(betsMap)
+            .filter(([, b]) => b.result !== undefined)
+            .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0));
+          if (Object.keys(betsMap).length === 0) return (
+            <View style={styles.emptyBox}>
+              <Ionicons name="trophy-outline" size={36} color={Colors.textMuted} />
+              <Text style={styles.emptyText}>Tu n'as pas encore fait de pronostic.</Text>
+            </View>
+          );
+          return settled.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Ionicons name="trophy-outline" size={36} color={Colors.textMuted} />
+              <Text style={styles.emptyText}>Aucun pari terminé pour l'instant.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.notesSubtitleRow}>
+                <Ionicons name="receipt-outline" size={13} color={Colors.textSecondary} />
+                <Text style={styles.notesSubtitle}>Derniers paris</Text>
+              </View>
+              {settled.map(renderBet)}
+            </>
+          );
+        })()}
+
+        {/* Notes */}
+        {profileTab === 'notes' && (
+          ratedMatchesData.length === 0 && ratedPlayersData.length === 0 ? (
             <View style={styles.emptyBox}>
               <Ionicons name="star-outline" size={36} color={Colors.textMuted} />
-              <Text style={styles.emptyText}>
-                Tu n'as pas encore noté de match.{'\n'}Va dans l'onglet Notes !
-              </Text>
+              <Text style={styles.emptyText}>Tu n'as pas encore noté de match.</Text>
             </View>
           ) : (
             <>
@@ -491,9 +499,7 @@ function ProfileDashboard() {
                           </Text>
                           <Text style={styles.noteMatchMeta}>
                             {match.competition}
-                            {communityAvg && communityAvg.totalVotes > 0
-                              ? `  ·  Moy. com. ${communityAvg.averageRating.toFixed(1)}`
-                              : ''}
+                            {communityAvg?.totalVotes > 0 ? `  ·  Moy. com. ${communityAvg.averageRating.toFixed(1)}` : ''}
                           </Text>
                         </View>
                         <View style={[styles.noteBadge, { backgroundColor: color + '20', borderColor: color + '60' }]}>
@@ -504,7 +510,6 @@ function ProfileDashboard() {
                   })}
                 </>
               )}
-
               {ratedPlayersData.length > 0 && (
                 <>
                   <View style={[styles.notesSubtitleRow, { marginTop: ratedMatchesData.length > 0 ? 16 : 0 }]}>
@@ -514,8 +519,7 @@ function ProfileDashboard() {
                   {ratedPlayersData.map(({ player, matchHistory }) => {
                     const isExpanded = expandedPlayer === player.id;
                     const communityStats = playerStats[player.id];
-                    const communityAvg = communityStats && communityStats.totalVotes > 0
-                      ? communityStats.averageRating : null;
+                    const communityAvg = communityStats?.totalVotes > 0 ? communityStats.averageRating : null;
                     return (
                       <View key={player.id} style={styles.notePlayerCard}>
                         <TouchableOpacity
@@ -528,7 +532,7 @@ function ProfileDashboard() {
                             <Text style={styles.notePlayerName}>{player.name}</Text>
                             {communityAvg !== null && (
                               <Text style={styles.notePlayerCommunity}>
-                                Moy. communauté: {communityAvg.toFixed(1)} · {communityStats.totalVotes} vote{communityStats.totalVotes > 1 ? 's' : ''}
+                                Moy. communauté: {communityAvg.toFixed(1)}
                               </Text>
                             )}
                           </View>
@@ -537,7 +541,6 @@ function ProfileDashboard() {
                             <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={13} color={Colors.textMuted} />
                           </View>
                         </TouchableOpacity>
-
                         {isExpanded && matchHistory.map(({ match, rating }) => {
                           const color = getRatingColor(rating);
                           return (
@@ -560,19 +563,11 @@ function ProfileDashboard() {
                 </>
               )}
             </>
-          )}
-        </View>
-      )}
+          )
+        )}
 
-      {/* Déconnexion */}
-      <View style={styles.logoutSection}>
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout} activeOpacity={0.8}>
-          <Ionicons name="log-out-outline" size={16} color={Colors.error} />
-          <Text style={styles.logoutText}>Se déconnecter</Text>
-        </TouchableOpacity>
+        <View style={{ height: Spacing.xxl }} />
       </View>
-
-      <View style={{ height: Spacing.xxl }} />
     </ScrollView>
   );
 }
@@ -585,7 +580,10 @@ export default function ProfileScreen() {
       <StatusBar barStyle="light-content" />
       {!isAuthenticated && (
         <View style={styles.guestHeader}>
-          <Text style={styles.guestHeaderTitle}>👤 Profil</Text>
+          <View style={styles.guestHeaderRow}>
+            <Ionicons name="person" size={22} color={Colors.text} />
+            <Text style={styles.guestHeaderTitle}>Profil</Text>
+          </View>
         </View>
       )}
       {isAuthenticated ? <ProfileDashboard /> : <AuthForm />}
@@ -603,6 +601,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingBottom: Spacing.md,
   },
+  guestHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   guestHeaderTitle: {
     fontSize: FontSize.xl,
     fontWeight: '800',
@@ -618,9 +621,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     alignItems: 'center',
   },
-  authHeaderEmoji: {
-    fontSize: 48,
+  authHeaderIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: Spacing.sm,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   authHeaderTitle: {
     fontSize: FontSize.xxl,
@@ -683,6 +693,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     backgroundColor: '#3A0000',
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
@@ -690,6 +703,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.error,
   },
   errorText: {
+    flex: 1,
     color: Colors.error,
     fontSize: FontSize.sm,
     fontWeight: '600',
@@ -708,122 +722,120 @@ const styles = StyleSheet.create({
   },
   // Profile
   profileHeader: {
-    paddingTop: 60,
+    paddingTop: 64,
     paddingBottom: Spacing.xl,
     alignItems: 'center',
     paddingHorizontal: Spacing.md,
+    gap: 10,
   },
-  avatarWrapper: {
-    position: 'relative',
-    marginBottom: Spacing.md,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  avatarWrapper: { position: 'relative' },
+  avatarRing: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 2.5,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
   },
-  avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
+  avatarInner: { alignItems: 'center', justifyContent: 'center', flex: 1 },
+  avatarImage: { width: 92, height: 92, borderRadius: 46 },
+  avatarText: { fontSize: 46 },
   avatarEditBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    bottom: 2,
+    right: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: Colors.background,
   },
-  avatarText: {
-    fontSize: 40,
-  },
-  profileUsernameRow: {
+  profileUsernameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  profileUsername: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
+  profileEmail: { fontSize: FontSize.xs, color: 'rgba(255,255,255,0.45)', fontWeight: '500' },
+
+  coinsPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: 'rgba(237,187,0,0.15)',
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(237,187,0,0.4)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  profileUsername: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
-    color: Colors.text,
+  coinsValue: { fontSize: 18, fontWeight: '900', color: Colors.gold },
+  coinsLabel: { fontSize: 13, color: 'rgba(237,187,0,0.7)', fontWeight: '600' },
+
+  countsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
   },
-  profileEmail: {
-    fontSize: FontSize.sm,
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 4,
+  countItem: { alignItems: 'center', minWidth: 60 },
+  countValue: { fontSize: FontSize.lg, fontWeight: '800', color: '#fff' },
+  countLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, fontWeight: '600' },
+  countSep: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.15)' },
+
+  premiumBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(237,187,0,0.15)',
+    borderRadius: BorderRadius.full,
+    paddingVertical: 8, paddingHorizontal: 16,
+    borderWidth: 1, borderColor: 'rgba(237,187,0,0.5)',
   },
-  profileJoined: {
-    fontSize: FontSize.xs,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 4,
+  premiumBtnText: { color: Colors.gold, fontWeight: '800', fontSize: FontSize.sm },
+  premiumActiveBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(237,187,0,0.1)',
+    borderRadius: BorderRadius.full,
+    paddingVertical: 8, paddingHorizontal: 16,
+    borderWidth: 1, borderColor: 'rgba(237,187,0,0.3)',
   },
+  premiumActiveBadgeText: { color: Colors.gold, fontWeight: '700', fontSize: FontSize.sm },
   adminBtn: {
-    marginTop: Spacing.md,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,77,152,0.4)',
     borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderWidth: 1,
-    borderColor: '#004D98',
+    paddingVertical: 8, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: '#004D98',
   },
-  adminBtnText: {
-    color: '#60A5FA',
-    fontWeight: '700',
-    fontSize: FontSize.sm,
+  adminBtnText: { color: '#60A5FA', fontWeight: '700', fontSize: FontSize.sm },
+  liveNotifBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: BorderRadius.full,
+    paddingVertical: 8, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: '#333',
   },
-  statsRow: {
-    flexDirection: 'row',
+  liveNotifBtnActive: {
+    backgroundColor: 'rgba(237,187,0,0.12)',
+    borderColor: 'rgba(237,187,0,0.4)',
+  },
+  liveNotifBtnText: { color: Colors.textMuted, fontWeight: '700', fontSize: FontSize.sm },
+  liveNotifBtnTextActive: { color: Colors.gold },
+
+  tabBarWrap: {
+    backgroundColor: Colors.background,
     paddingHorizontal: Spacing.md,
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  statCard: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    gap: 4,
-  },
-  statCardHighlight: {
-    borderColor: 'rgba(237,187,0,0.35)',
-    backgroundColor: 'rgba(237,187,0,0.07)',
-  },
-  statValue: {
-    fontSize: FontSize.lg,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  statLabel: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  section: {
-    marginTop: Spacing.md,
-    paddingHorizontal: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: Spacing.md,
-  },
+  content: { paddingHorizontal: Spacing.md, paddingTop: Spacing.sm },
   emptyBox: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderRadius: BorderRadius.md,
@@ -886,9 +898,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: FontSize.sm,
   },
-  logoutSection: {
-    paddingHorizontal: Spacing.md,
-    marginTop: Spacing.xl,
+  settingsBtn: {
+    position: 'absolute',
+    top: 16, // overridé dynamiquement avec insets.top
+    right: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    zIndex: 10,
   },
   logoutBtn: {
     flexDirection: 'row',
@@ -900,34 +922,23 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     padding: Spacing.md,
     backgroundColor: 'rgba(244,67,54,0.06)',
+    marginTop: Spacing.xl,
   },
-  logoutText: {
-    color: Colors.error,
-    fontWeight: '700',
-    fontSize: FontSize.md,
-  },
-
-  // Follow counts
-  followRow: {
+  logoutText: { color: Colors.error, fontWeight: '700', fontSize: FontSize.md },
+  deleteAccountBtn: {
     flexDirection: 'row',
-    marginHorizontal: Spacing.md,
-    marginTop: Spacing.sm,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
     borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.09)',
-    paddingVertical: Spacing.md,
+    padding: Spacing.md,
+    marginTop: Spacing.sm,
   },
-  followItem: { flex: 1, alignItems: 'center', gap: 3 },
-  followValue: { fontSize: FontSize.lg, fontWeight: '800', color: Colors.text },
-  followLabel: { fontSize: FontSize.xs, color: Colors.textSecondary },
-  followDivider: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginVertical: 4 },
+  deleteAccountText: { color: '#555', fontWeight: '600', fontSize: FontSize.sm },
 
-  // Profile tabs — glass
+  // Profile tabs — glass (sticky)
   profileTabRow: {
     flexDirection: 'row',
-    marginHorizontal: Spacing.md,
-    marginTop: Spacing.sm,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 18,
     padding: 4,
@@ -949,15 +960,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(165,0,68,0.65)',
   },
-  profileTabText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  profileTabTextActive: {
-    color: '#fff',
-    fontWeight: '700',
-  },
+  profileTabText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '600' },
+  profileTabTextActive: { color: '#fff', fontWeight: '700' },
 
   // Notes section
   notesSubtitleRow: {

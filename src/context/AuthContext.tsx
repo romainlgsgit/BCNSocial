@@ -5,8 +5,9 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  deleteUser,
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, onSnapshot, collection, query, where, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { User } from '../types';
 
@@ -20,7 +21,10 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<boolean>;
   register: (username: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
+  deleteAccount: () => Promise<void>;
+  changeUsername: (newUsername: string) => Promise<void>;
   updateCoins: (amount: number) => void;
+  addPoints: (amount: number) => void;
   updatePhoto: (photoURL: string) => Promise<void>;
 }
 
@@ -31,54 +35,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Charger les données depuis Firestore (pièces persistées)
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const snap = await getDoc(userRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          const username = firebaseUser.displayName || firebaseUser.email!.split('@')[0];
-          // Persiste le username dans Firestore pour la recherche admin
-          if (!data.username) updateDoc(userRef, { username }).catch(() => {});
-          setUser({
-            id: firebaseUser.uid,
-            username,
-            email: firebaseUser.email!,
-            avatar: data.avatar ?? '🦁',
-            photoBase64: data.photoBase64 ?? undefined,
-            verified: data.verified ?? false,
-            coins: data.coins ?? 200,
-            points: data.points ?? 0,
-            pronostics: [],
-            joinedAt: firebaseUser.metadata.creationTime || new Date().toISOString(),
-          });
-        } else {
-          // Nouveau compte — créer le document avec 200 pièces de départ
-          const newUser = {
-            coins: 200,
-            points: 0,
-            avatar: '🦁',
-          };
-          await setDoc(userRef, newUser);
-          setUser({
-            id: firebaseUser.uid,
-            username: firebaseUser.displayName || firebaseUser.email!.split('@')[0],
-            email: firebaseUser.email!,
-            avatar: '🦁',
-            coins: 200,
-            points: 0,
-            pronostics: [],
-            joinedAt: firebaseUser.metadata.creationTime || new Date().toISOString(),
-          });
-        }
-      } else {
+    // Écoute temps réel du document utilisateur : pièces, points et grade reflètent
+    // la base en direct (et se synchronisent entre appareils).
+    let profileUnsub: (() => void) | null = null;
+
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (profileUnsub) { profileUnsub(); profileUnsub = null; }
+
+      if (!firebaseUser) {
         setUser(null);
+        setIsLoading(false);
+        return;
       }
-      setIsLoading(false);
+
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const fallbackUsername = firebaseUser.displayName || firebaseUser.email!.split('@')[0];
+
+      profileUnsub = onSnapshot(userRef, (snap) => {
+        if (!snap.exists()) {
+          setDoc(userRef, { coins: 200, points: 0, avatar: '🦁', username: fallbackUsername }).catch(() => {});
+          return;
+        }
+
+        const data = snap.data();
+        if (!data.username) updateDoc(userRef, { username: fallbackUsername }).catch(() => {});
+
+        // Firestore est la source de vérité pour le pseudo
+        const username = data.username || fallbackUsername;
+
+        setUser({
+          id: firebaseUser.uid,
+          username,
+          email: firebaseUser.email!,
+          avatar: data.avatar ?? '🦁',
+          photoBase64: data.photoBase64 ?? undefined,
+          verified: data.verified ?? false,
+          liveNotifEnabled: data.liveNotifEnabled ?? false,
+          mentionNotifEnabled: data.mentionNotifEnabled ?? false,
+          lastUsernameChange: data.lastUsernameChange ?? undefined,
+          coins: data.coins ?? 200,
+          points: data.points ?? 0,
+          pronostics: [],
+          joinedAt: firebaseUser.metadata.creationTime || new Date().toISOString(),
+        });
+        setIsLoading(false);
+      }, () => {
+        setIsLoading(false);
+      });
     });
 
-    return () => unsubscribe();
+    return () => {
+      if (profileUnsub) profileUnsub();
+      unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -120,11 +129,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   };
 
+  const changeUsername = async (newUsername: string) => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser || !user) return;
+    await updateProfile(firebaseUser, { displayName: newUsername });
+    await updateDoc(doc(db, 'users', user.id), {
+      username: newUsername,
+      lastUsernameChange: new Date().toISOString(),
+    });
+    // Mettre à jour tous les posts existants
+    const postsSnap = await getDocs(query(collection(db, 'posts'), where('userId', '==', user.id)));
+    if (!postsSnap.empty) {
+      const batch = writeBatch(db);
+      postsSnap.docs.forEach(d => batch.update(d.ref, { username: newUsername }));
+      await batch.commit();
+    }
+  };
+
+  const deleteAccount = async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser || !user) return;
+    try {
+      // Supprimer tous les posts
+      const postsSnap = await getDocs(query(collection(db, 'posts'), where('userId', '==', user.id)));
+      if (!postsSnap.empty) {
+        const batch = writeBatch(db);
+        postsSnap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+      // Supprimer le doc utilisateur
+      await deleteDoc(doc(db, 'users', user.id));
+      // Supprimer le compte Firebase Auth
+      await deleteUser(firebaseUser);
+    } catch (e) {
+      throw e;
+    }
+  };
+
   const updateCoins = (amount: number) => {
     if (!user) return;
     const newCoins = Math.max(0, user.coins + amount);
     setUser({ ...user, coins: newCoins });
     updateDoc(doc(db, 'users', user.id), { coins: newCoins }).catch(() => {});
+  };
+
+  const addPoints = (amount: number) => {
+    if (!user || amount === 0) return;
+    const newPoints = Math.max(0, user.points + amount);
+    setUser({ ...user, points: newPoints });
+    updateDoc(doc(db, 'users', user.id), { points: newPoints }).catch(() => {});
   };
 
   const updatePhoto = async (photoBase64: string) => {
@@ -153,7 +206,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         logout,
+        deleteAccount,
+        changeUsername,
         updateCoins,
+        addPoints,
         updatePhoto,
       }}
     >

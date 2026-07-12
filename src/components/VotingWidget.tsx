@@ -6,9 +6,11 @@ import {
   TouchableOpacity,
   Image,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Match, Player } from '../types';
 import { useRatings } from '../context/RatingsContext';
+import { useAuth } from '../context/AuthContext';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -167,14 +169,19 @@ function MatchHeader({ match, pending = false }: { match: Match; pending?: boole
       <View style={vStyles.headerTop}>
         {pending ? (
           <View style={vStyles.pendingPill}>
-            <Text style={vStyles.pendingPillText}>⏳ EN ATTENTE</Text>
+            <Ionicons name="time-outline" size={11} color={Colors.textMuted} />
+            <Text style={vStyles.pendingPillText}>EN ATTENTE</Text>
           </View>
         ) : (
           <View style={vStyles.livePill}>
-            <Text style={vStyles.livePillText}>🔥 VOTE OUVERT</Text>
+            <View style={vStyles.liveDot} />
+            <Text style={vStyles.livePillText}>VOTE OUVERT</Text>
           </View>
         )}
-        <Text style={vStyles.headerTime}>⏱ {timeLeft}</Text>
+        <View style={vStyles.headerTimeRow}>
+          <Ionicons name="timer-outline" size={12} color={Colors.textMuted} />
+          <Text style={vStyles.headerTime}>{timeLeft}</Text>
+        </View>
       </View>
       <View style={vStyles.matchRow}>
         <View style={vStyles.teamCol}>
@@ -217,6 +224,7 @@ export function PendingLineupCard({ match }: { match: Match }) {
 // ─── VotingCard (accordéon avec toggle principal) ────────────────────────────
 
 export function VotingCard({ match, lineup }: { match: Match; lineup: Player[] }) {
+  const { isAuthenticated } = useAuth();
   const { getUserMatchRating, rateMatch, getUserPlayerRating, ratePlayer, matchStats } = useRatings();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -234,24 +242,35 @@ export function VotingCard({ match, lineup }: { match: Match; lineup: Player[] }
       {/* En-tête match — toujours visible */}
       <MatchHeader match={match} />
 
+      {/* Guard non connecté */}
+      {!isAuthenticated && (
+        <View style={vStyles.authPrompt}>
+          <Ionicons name="lock-closed-outline" size={16} color={Colors.textMuted} />
+          <Text style={vStyles.authPromptText}>Connecte-toi pour voter</Text>
+        </View>
+      )}
+
       {/* Bouton principal d'ouverture */}
-      <TouchableOpacity
+      {isAuthenticated && <TouchableOpacity
         style={[vStyles.mainToggle, open && vStyles.mainToggleOpen]}
         onPress={() => { setOpen((v) => !v); setExpanded(null); }}
         activeOpacity={0.8}
       >
-        <Text style={vStyles.mainToggleText}>
-          {open ? 'Fermer' : '🗳️  Voter pour ce match'}
-        </Text>
+        <View style={vStyles.mainToggleLeft}>
+          <Ionicons name={open ? 'chevron-up' : 'create-outline'} size={15} color={Colors.primary} />
+          <Text style={vStyles.mainToggleText}>
+            {open ? 'Fermer' : 'Voter pour ce match'}
+          </Text>
+        </View>
         <View style={vStyles.mainToggleRight}>
           {totalVoted > 0 && !open && (
             <View style={vStyles.progressPill}>
               <Text style={vStyles.progressPillText}>{totalVoted}/{total}</Text>
             </View>
           )}
-          <Text style={vStyles.mainToggleChevron}>{open ? '▲' : '▼'}</Text>
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={Colors.primary} />
         </View>
-      </TouchableOpacity>
+      </TouchableOpacity>}
 
       {/* Contenu déroulant */}
       {open && (
@@ -276,7 +295,7 @@ export function VotingCard({ match, lineup }: { match: Match; lineup: Player[] }
               ) : (
                 <Text style={vStyles.accordionHint}>Noter</Text>
               )}
-              <Text style={vStyles.chevron}>{expanded === '__match__' ? '▲' : '▼'}</Text>
+              <Ionicons name={expanded === '__match__' ? 'chevron-up' : 'chevron-down'} size={13} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
           {expanded === '__match__' && (
@@ -321,7 +340,7 @@ export function VotingCard({ match, lineup }: { match: Match; lineup: Player[] }
                     ) : (
                       <Text style={vStyles.accordionHint}>Noter</Text>
                     )}
-                    <Text style={vStyles.chevron}>{isOpen ? '▲' : '▼'}</Text>
+                    <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={13} color={Colors.textMuted} />
                   </View>
                 </TouchableOpacity>
                 {isOpen && (
@@ -373,7 +392,16 @@ const vStyles = StyleSheet.create({
     backgroundColor: Colors.primary,
     borderRadius: BorderRadius.full,
     paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
   },
   livePillText: {
     fontSize: 10,
@@ -385,7 +413,10 @@ const vStyles = StyleSheet.create({
     backgroundColor: Colors.border,
     borderRadius: BorderRadius.full,
     paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   pendingPillText: {
     fontSize: 10,
@@ -393,8 +424,27 @@ const vStyles = StyleSheet.create({
     color: Colors.textMuted,
     letterSpacing: 0.5,
   },
+  headerTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   headerTime: {
     fontSize: FontSize.xs,
+    color: Colors.textMuted,
+    fontWeight: '600',
+  },
+  authPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingVertical: 14,
+  },
+  authPromptText: {
+    fontSize: FontSize.sm,
     color: Colors.textMuted,
     fontWeight: '600',
   },
@@ -464,6 +514,11 @@ const vStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
+  mainToggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
   mainToggleText: {
     fontSize: FontSize.sm,
     fontWeight: '700',
@@ -473,11 +528,6 @@ const vStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  mainToggleChevron: {
-    fontSize: 11,
-    color: Colors.primary,
-    fontWeight: '700',
   },
   progressPill: {
     backgroundColor: Colors.primary + '22',

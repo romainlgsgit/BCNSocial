@@ -147,14 +147,22 @@ export function PronoProvider({ children }: { children: ReactNode }) {
     return match.status;
   };
 
+  // Au-delà de cette durée après le coup d'envoi, le match est forcément terminé —
+  // utile quand un match en cache garde un statut 'upcoming' périmé (fin de saison).
+  const MATCH_OVER_AFTER_MS = 3 * 60 * 60 * 1000;
+
   const pronoMatches = useMemo<PronoMatch[]>(() => {
+    const now = Date.now();
     return nextMatches
       .map(m => ({
         ...m,
         odds: oddsMap[m.id] ?? {},
         effectiveStatus: effectiveStatus(m),
       }))
-      .filter(m => m.effectiveStatus !== 'finished');
+      .filter(m =>
+        m.effectiveStatus !== 'finished' &&
+        now - new Date(m.date).getTime() < MATCH_OVER_AFTER_MS
+      );
   }, [nextMatches, oddsMap, statusMap, liveData, featuredMatch]);
 
   const getBet = (matchId: string) => betsMap[matchId];

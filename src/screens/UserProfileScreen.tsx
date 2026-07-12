@@ -8,15 +8,17 @@ import {
   ActivityIndicator,
   Image,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useFollow } from '../context/FollowContext';
+import { useBlock } from '../context/BlockContext';
 import { useRatings } from '../context/RatingsContext';
 import { useFeaturedMatch } from '../context/MatchContext';
 import { PLAYERS, MATCHES } from '../data/mockData';
@@ -122,7 +124,7 @@ function PostsTab({ posts }: { posts: Post[] }) {
     return <EmptyState icon="chatbubble-outline" text="Aucune publication pour l'instant." />;
   }
   return (
-    <View style={{ paddingTop: Spacing.sm }}>
+    <View style={{ paddingTop: Spacing.sm, marginHorizontal: -Spacing.md }}>
       {posts.map((p) => <PostCard key={p.id} post={p} />)}
     </View>
   );
@@ -319,6 +321,7 @@ export default function UserProfileScreen() {
   const { userId } = route.params as { userId: string };
   const { user: currentUser } = useAuth();
   const { isFollowing, followUser, unfollowUser } = useFollow();
+  const { isBlockedByMe, isBlockedByThem, isAnyBlock, blockUser, unblockUser } = useBlock();
   const { monthlyMatches } = useFeaturedMatch();
 
   const [profileUser, setProfileUser] = useState<PublicUser | null>(null);
@@ -328,6 +331,9 @@ export default function UserProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [blockLoading, setBlockLoading] = useState(false);
 
   const isOwnProfile = currentUser?.id === userId;
   const following = isFollowing(userId);
@@ -335,20 +341,24 @@ export default function UserProfileScreen() {
 
   // Profil utilisateur (temps réel pour les compteurs)
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'users', userId), (snap) => {
-      if (snap.exists()) {
-        const d = snap.data();
-        setProfileUser({
-          username: d.username || 'Utilisateur',
-          avatar: d.avatar || '🦁',
-          photoBase64: d.photoBase64,
-          verified: d.verified ?? false,
-          followersCount: d.followersCount ?? 0,
-          followingCount: d.followingCount ?? 0,
-        });
-      }
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      doc(db, 'users', userId),
+      (snap) => {
+        if (snap.exists()) {
+          const d = snap.data();
+          setProfileUser({
+            username: d.username || 'Utilisateur',
+            avatar: d.avatar || '🦁',
+            photoBase64: d.photoBase64,
+            verified: d.verified ?? false,
+            followersCount: d.followersCount ?? 0,
+            followingCount: d.followingCount ?? 0,
+          });
+        }
+        setLoading(false);
+      },
+      () => setLoading(false), // permission refusée (non connecté) → arrêt du loading
+    );
     return unsub;
   }, [userId]);
 
@@ -387,6 +397,64 @@ export default function UserProfileScreen() {
     }
   };
 
+  // Charger l'état de la cloche
+  useEffect(() => {
+    if (!currentUser || isOwnProfile) return;
+    const subId = `${currentUser.id}_${userId}`;
+    getDoc(doc(db, 'notifSubscriptions', subId)).then(snap => {
+      setNotifEnabled(snap.exists());
+    });
+  }, [currentUser?.id, userId]);
+
+  const handleBlockToggle = async () => {
+    if (!currentUser || isOwnProfile || blockLoading) return;
+    const blocked = isBlockedByMe(userId);
+    if (!blocked) {
+      Alert.alert(
+        'Bloquer cet utilisateur ?',
+        'Il ne pourra plus voir tes posts ni ton profil, et toi non plus les siens.',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Bloquer', style: 'destructive',
+            onPress: async () => {
+              setBlockLoading(true);
+              await blockUser(userId);
+              setBlockLoading(false);
+              navigation.goBack();
+            },
+          },
+        ]
+      );
+    } else {
+      setBlockLoading(true);
+      await unblockUser(userId);
+      setBlockLoading(false);
+    }
+  };
+
+  const handleNotifToggle = async () => {
+    if (!currentUser || isOwnProfile || notifLoading) return;
+    setNotifLoading(true);
+    const subId = `${currentUser.id}_${userId}`;
+    const subRef = doc(db, 'notifSubscriptions', subId);
+    try {
+      if (notifEnabled) {
+        await deleteDoc(subRef);
+        setNotifEnabled(false);
+      } else {
+        await setDoc(subRef, {
+          subscriberId: currentUser.id,
+          targetUserId: userId,
+          createdAt: new Date().toISOString(),
+        });
+        setNotifEnabled(true);
+      }
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -401,6 +469,35 @@ export default function UserProfileScreen() {
       <View style={styles.centered}>
         <StatusBar barStyle="light-content" />
         <Text style={{ color: Colors.textMuted }}>Profil introuvable</Text>
+      </View>
+    );
+  }
+
+  // Profil bloqué (dans un sens ou l'autre)
+  if (isAnyBlock(userId)) {
+    return (
+      <View style={styles.root}>
+        <StatusBar barStyle="light-content" />
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.9)" />
+        </TouchableOpacity>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 }}>
+          <Ionicons name="ban-outline" size={56} color={Colors.textMuted} />
+          <Text style={{ color: Colors.text, fontSize: 18, fontWeight: '800' }}>Compte indisponible</Text>
+          <Text style={{ color: Colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20 }}>
+            {isBlockedByMe(userId)
+              ? 'Tu as bloqué cet utilisateur. Débloque-le pour voir son profil.'
+              : 'Tu ne peux pas voir ce profil.'}
+          </Text>
+          {isBlockedByMe(userId) && (
+            <TouchableOpacity
+              style={{ backgroundColor: Colors.primary, borderRadius: 20, paddingVertical: 12, paddingHorizontal: 28, marginTop: 8 }}
+              onPress={handleBlockToggle}
+            >
+              <Text style={{ color: '#fff', fontWeight: '700' }}>Débloquer</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     );
   }
@@ -458,29 +555,57 @@ export default function UserProfileScreen() {
             </View>
           </View>
 
-          {/* Bouton abonnement */}
+          {/* Bouton abonnement + cloche */}
           {!isOwnProfile && currentUser ? (
-            <TouchableOpacity
-              style={[styles.followBtn, following && styles.followingBtn]}
-              onPress={handleFollowToggle}
-              disabled={followLoading}
-              activeOpacity={0.85}
-            >
-              {followLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons
-                    name={following ? 'checkmark-circle' : 'person-add-outline'}
-                    size={16}
-                    color={following ? 'rgba(255,255,255,0.75)' : '#fff'}
-                  />
-                  <Text style={[styles.followBtnText, following && styles.followingBtnText]}>
-                    {following ? 'Abonné' : "S'abonner"}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <TouchableOpacity
+                style={[styles.followBtn, following && styles.followingBtn]}
+                onPress={handleFollowToggle}
+                disabled={followLoading}
+                activeOpacity={0.85}
+              >
+                {followLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={following ? 'checkmark-circle' : 'person-add-outline'}
+                      size={16}
+                      color={following ? 'rgba(255,255,255,0.75)' : '#fff'}
+                    />
+                    <Text style={[styles.followBtnText, following && styles.followingBtnText]}>
+                      {following ? 'Abonné' : "S'abonner"}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.bellBtn, notifEnabled && styles.bellBtnActive]}
+                onPress={handleNotifToggle}
+                disabled={notifLoading}
+                activeOpacity={0.85}
+              >
+                {notifLoading
+                  ? <ActivityIndicator size="small" color={notifEnabled ? Colors.gold : 'rgba(255,255,255,0.6)'} />
+                  : <Ionicons
+                      name={notifEnabled ? 'notifications' : 'notifications-outline'}
+                      size={18}
+                      color={notifEnabled ? Colors.gold : 'rgba(255,255,255,0.6)'}
+                    />
+                }
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bellBtn}
+                onPress={handleBlockToggle}
+                disabled={blockLoading}
+                activeOpacity={0.85}
+              >
+                {blockLoading
+                  ? <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+                  : <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.6)" />
+                }
+              </TouchableOpacity>
+            </View>
           ) : isOwnProfile ? (
             <View style={styles.ownPill}>
               <Ionicons name="person-circle-outline" size={14} color="rgba(255,255,255,0.5)" />
@@ -608,6 +733,20 @@ const styles = StyleSheet.create({
   },
   followBtnText: { color: '#fff', fontWeight: '800', fontSize: FontSize.sm },
   followingBtnText: { color: 'rgba(255,255,255,0.7)' },
+  bellBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellBtnActive: {
+    backgroundColor: 'rgba(237,187,0,0.12)',
+    borderColor: 'rgba(237,187,0,0.4)',
+  },
 
   ownPill: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -11,34 +11,54 @@ import {
   sendMatchEndNotification,
 } from '../services/NotificationService';
 
+// ─── Sources ──────────────────────────────────────────────────────────────────
+// football-data.org : calendrier, prochains matchs, résultats (gratuit 10 req/min)
+// ESPN              : score + timer live (gratuit, sans clé, quasi temps-réel)
+
 const API_TOKEN = '3000b1fbd35442c4924a4b1c560eb630';
-const BARCA_ID = 81;
-const API_SPORTS_KEY = '6e329e6f75ffdaa7d69a869d6764ed37';
-const BARCA_APISPORTS_ID = 529;
+const BARCA_ID  = 81;
 
-const POLL_INTERVAL_LIVE = 15 * 1000;          // 15s pendant le match — lit Firestore (gratuit)
-const POLL_INTERVAL_PAUSED = 40 * 1000;        // 40s à la mi-temps
-const POLL_INTERVAL_KICKOFF = 20 * 1000;       // 20s dans la fenêtre du coup d'envoi
+const BARCA_ESPN_ID = '83';
+const espnSummaryUrl = (league: string, eventId: string) =>
+  `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/summary?event=${eventId}`;
+const espnScoreboardUrl = (league: string, dates: string) =>
+  `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard?dates=${dates}`;
+// Compétitions où Barça peut jouer (pour le lookup ESPN par date)
+const BARCA_LEAGUES = ['esp.1', 'esp.copa_del_rey', 'esp.super_cup', 'uefa.champions', 'fifa.cwc'];
+
+// Intervalles de polling client (chaque appareil lit Firestore à cette fréquence)
+const POLL_INTERVAL_LIVE     = 8 * 1000;       // 8s pendant le match
 const POLL_INTERVAL_PREMATCH = 5 * 60 * 1000;  // 5 min loin du KO
-const KICKOFF_WINDOW_MS = 5 * 60 * 1000;       // fenêtre de 5 min autour du KO
-const PREMATCH_WINDOW_MS = 15 * 60 * 1000;     // activer le polling 15 min avant le KO
+const PREMATCH_WINDOW_MS     = 15 * 60 * 1000;
 
-// Firestore cache TTLs — seul CACHE_MS_LIVE consomme le quota api-sports.io (100 req/day)
-// Pendant PAUSED (HT) : football-data.org utilisé à la place → 0 appel api-sports.io en HT
-// 100min IN_PLAY (avec temps add.) / 65s ≈ 92 appels → total ~92/match ✓
-const CACHE_MS_LIVE = 65_000;    // 65s IN_PLAY → délai max 65+15 = 80s
-const CACHE_MS_PAUSED = 60_000;  // 60s HT — football-data.org (gratuit), reprise détectée en ~100s max
-const CACHE_MS_IDLE = 60_000;    // 1min pre/post (football-data.org, pas de quota)
+// Fenêtre "coup d'envoi" → polling serré pour démarrer ASAP
+const KO_WINDOW_BEFORE_MS = 2 * 60 * 1000;
+const KO_WINDOW_AFTER_MS  = 10 * 60 * 1000;
 
-const CACHE_TTL_MS = 10 * 60 * 1000;
-const CACHE_KEY_FEATURED = 'cache_featured_v1';
-const CACHE_KEY_MONTHLY = 'cache_monthly_v1';
+// TTL du cache Firestore — ESPN illimité, on cache court (délai max ~20s)
+const CACHE_MS_LIVE    = 12_000;
+const CACHE_MS_PAUSED  = 12_000;
+const CACHE_MS_KICKOFF = 12_000;
+const CACHE_MS_IDLE    = 60_000;
+
+const CACHE_TTL_MS       = 10 * 60 * 1000;
+const CACHE_KEY_FEATURED = 'cache_featured_v5';
+const CACHE_KEY_MONTHLY  = 'cache_monthly_v4';
+
+export interface MatchGoal {
+  scorer: string;
+  team: 'home' | 'away';
+  minute: string; // "28'", "45+2'", "90+3'"
+  isPenalty?: boolean;
+  isOwnGoal?: boolean;
+}
 
 export interface LiveMatchData {
   status: 'SCHEDULED' | 'TIMED' | 'IN_PLAY' | 'PAUSED' | 'FINISHED' | 'SUSPENDED' | 'POSTPONED';
   homeScore: number | null;
   awayScore: number | null;
   minute: number | null;
+  goals?: MatchGoal[];
 }
 
 interface MatchContextType {
@@ -58,7 +78,7 @@ interface MatchContextType {
 
 const MatchContext = createContext<MatchContextType | undefined>(undefined);
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── football-data.org → app mapping ──────────────────────────────────────────
 
 function mapTeam(t: any): Team {
   return {
@@ -89,7 +109,53 @@ function mapMatch(m: any): Match {
   };
 }
 
-// ─── Cache helpers ────────────────────────────────────────────────────────────
+// ─── ESPN status mapping (pour le live) ───────────────────────────────────────
+
+function mapEspnStatus(name: string, state?: string): LiveMatchData['status'] {
+  // Overrides spécifiques (pause / fin / annulé)
+  switch (name) {
+    case 'STATUS_HALFTIME':
+    case 'STATUS_END_PERIOD':             return 'PAUSED';
+    case 'STATUS_FULL_TIME':
+    case 'STATUS_FINAL':
+    case 'STATUS_FINAL_AET':
+    case 'STATUS_FINAL_PEN':              return 'FINISHED';
+    case 'STATUS_POSTPONED':
+    case 'STATUS_CANCELED':
+    case 'STATUS_FORFEIT':                return 'POSTPONED';
+  }
+  // Fallback basé sur state (gère STATUS_FIRST_HALF, STATUS_SECOND_HALF, STATUS_OVERTIME, etc.)
+  if (state === 'in')   return 'IN_PLAY';
+  if (state === 'post') return 'FINISHED';
+  return 'SCHEDULED';
+}
+
+// "19'" → 19, "45+2'" → 47, "90+3'" → 93
+function parseDisplayClock(s: any): number | null {
+  if (typeof s !== 'string') return null;
+  const m = s.match(/^(\d+)(?:\+(\d+))?/);
+  if (!m) return null;
+  return parseInt(m[1], 10) + (m[2] ? parseInt(m[2], 10) : 0);
+}
+
+function extractEspnScore(s: any): number | null {
+  if (s == null) return null;
+  if (typeof s === 'number') return s;
+  if (typeof s === 'string') {
+    const n = parseInt(s, 10);
+    return Number.isNaN(n) ? null : n;
+  }
+  if (typeof s === 'object') {
+    if (typeof s.value === 'number') return s.value;
+    if (typeof s.displayValue === 'string') {
+      const n = parseInt(s.displayValue, 10);
+      return Number.isNaN(n) ? null : n;
+    }
+  }
+  return null;
+}
+
+// ─── Cache helpers (AsyncStorage) ─────────────────────────────────────────────
 
 async function saveCache(key: string, data: any) {
   try {
@@ -108,7 +174,7 @@ async function loadCache<T>(key: string): Promise<{ data: T; isStale: boolean } 
   }
 }
 
-// ─── API fetch ────────────────────────────────────────────────────────────────
+// ─── football-data.org calls ──────────────────────────────────────────────────
 
 async function apiFetch(url: string): Promise<any> {
   const res = await fetch(url, { headers: { 'X-Auth-Token': API_TOKEN } });
@@ -134,8 +200,38 @@ async function fetchFeaturedAndNext(): Promise<{ featured: Match; apiId: string;
   const matches: Match[] = (data.matches ?? [])
     .map(mapMatch)
     .sort((a: Match, b: Match) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  if (!matches.length) return null;
+  // Fin de saison : plus de match programmé → mettre en avant le dernier match joué
+  if (!matches.length) return fetchLastFinishedMatch();
   return { featured: matches[0], apiId: String(matches[0].id), next3: matches.slice(0, 3) };
+}
+
+async function fetchNextScheduledMatch(): Promise<{ featured: Match; apiId: string; next3: Match[] } | null> {
+  const data = await apiFetch(
+    `https://api.football-data.org/v4/teams/${BARCA_ID}/matches?status=SCHEDULED&limit=5`
+  );
+  const matches: Match[] = (data.matches ?? [])
+    .map(mapMatch)
+    .sort((a: Match, b: Match) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  // Plus aucun match programmé (intersaison / fin de saison) → retomber sur le dernier match joué
+  if (!matches.length) return fetchLastFinishedMatch();
+  return { featured: matches[0], apiId: String(matches[0].id), next3: matches.slice(0, 3) };
+}
+
+// Dernier match joué (fin de saison : il n'y a plus de match à venir à mettre en avant)
+async function fetchLastFinishedMatch(): Promise<{ featured: Match; apiId: string; next3: Match[] } | null> {
+  try {
+    const data = await apiFetch(
+      `https://api.football-data.org/v4/teams/${BARCA_ID}/matches?status=FINISHED&limit=10`
+    );
+    const matches: Match[] = (data.matches ?? [])
+      .map(mapMatch)
+      .sort((a: Match, b: Match) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (!matches.length) return null;
+    // next3 vide : pas de pronos possibles hors saison
+    return { featured: matches[0], apiId: String(matches[0].id), next3: [] };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchMonthlyMatches(): Promise<Match[]> {
@@ -152,132 +248,171 @@ async function fetchMonthlyMatches(): Promise<Match[]> {
   return (data.matches ?? []).map(mapMatch);
 }
 
-// football-data.org : fiable pour le statut (SCHEDULED→IN_PLAY→FINISHED) mais pas le score live.
-async function callFootballDataLive(matchId: string): Promise<LiveMatchData | null> {
-  const res = await fetch(
-    `https://api.football-data.org/v4/matches/${matchId}`,
-    { headers: { 'X-Auth-Token': API_TOKEN } }
+// ─── ESPN : score + timer live ────────────────────────────────────────────────
+
+function formatDateYmd(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+}
+
+// Trouve l'ID ESPN + le slug de ligue pour un match Barça à une date donnée.
+// Appelé une seule fois quand le polling live démarre.
+async function resolveEspnMatch(matchDate: Date): Promise<{ eventId: string; leagueSlug: string } | null> {
+  // Fenêtre de ±1 jour autour de la date pour gérer les fuseaux horaires
+  const day = 24 * 60 * 60 * 1000;
+  const from = formatDateYmd(new Date(matchDate.getTime() - day));
+  const to = formatDateYmd(new Date(matchDate.getTime() + day));
+  const dateRange = `${from}-${to}`;
+
+  const fetches = BARCA_LEAGUES.map(league =>
+    fetch(espnScoreboardUrl(league, dateRange))
+      .then(r => r.json())
+      .then(json => ({ league, events: json.events ?? [] as any[] }))
+      .catch(() => ({ league, events: [] as any[] }))
   );
+  const results = await Promise.all(fetches);
+
+  // Sélectionner l'event Barça le plus proche temporellement de matchDate
+  let best: { eventId: string; leagueSlug: string; dt: number } | null = null;
+  for (const { league, events } of results) {
+    for (const ev of events) {
+      const competitors = ev.competitions?.[0]?.competitors ?? [];
+      const involvesBarca = competitors.some(
+        (c: any) =>
+          String(c.team?.id) === BARCA_ESPN_ID ||
+          (c.team?.displayName ?? '').toLowerCase().includes('barcelona')
+      );
+      if (!involvesBarca) continue;
+      const evDate = new Date(ev.date).getTime();
+      const dt = Math.abs(evDate - matchDate.getTime());
+      if (!best || dt < best.dt) {
+        best = { eventId: String(ev.id), leagueSlug: league, dt };
+      }
+    }
+  }
+  return best ? { eventId: best.eventId, leagueSlug: best.leagueSlug } : null;
+}
+
+// Extrait les buts depuis ESPN keyEvents (scoringPlay=true).
+// ESPN met le champ `team` sur l'équipe qui marque le point (correct même pour CSC).
+function extractGoals(keyEvents: any[], homeId?: string): MatchGoal[] {
+  const goals: MatchGoal[] = [];
+  for (const ev of keyEvents ?? []) {
+    if (!ev?.scoringPlay) continue;
+    const typeStr: string = (ev.type?.type ?? '').toLowerCase();
+    // Ignorer les tirs au but
+    if (typeStr.includes('shootout') || ev.shootout) continue;
+
+    const teamId = String(ev.team?.id ?? '');
+    const team: 'home' | 'away' = teamId === String(homeId ?? '') ? 'home' : 'away';
+    const scorer = ev.participants?.[0]?.athlete?.displayName?.trim() || 'Inconnu';
+    const minute = ev.clock?.displayValue || '';
+
+    goals.push({
+      scorer,
+      team,
+      minute,
+      isPenalty: typeStr.includes('penalty'),
+      isOwnGoal: typeStr.includes('own-goal') || typeStr.includes('own goal'),
+    });
+  }
+  return goals;
+}
+
+async function callEspnLive(leagueSlug: string, eventId: string): Promise<LiveMatchData | null> {
+  const res = await fetch(espnSummaryUrl(leagueSlug, eventId));
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json = await res.json();
+  const comp = json.header?.competitions?.[0];
+  if (!comp) return null;
 
-  let status: LiveMatchData['status'];
-  switch (json.status) {
-    case 'IN_PLAY':   status = 'IN_PLAY';   break;
-    case 'PAUSED':    status = 'PAUSED';    break;
-    case 'FINISHED':  status = 'FINISHED';  break;
-    case 'TIMED':     status = 'TIMED';     break;
-    default:          status = 'SCHEDULED'; break;
+  const competitors = comp.competitors ?? [];
+  const home = competitors.find((c: any) => c.homeAway === 'home') ?? competitors[0];
+  const away = competitors.find((c: any) => c.homeAway === 'away') ?? competitors[1];
+  const st = comp.status ?? {};
+  const status = mapEspnStatus(st.type?.name ?? '', st.type?.state);
+
+  // Minute : displayClock ("19'", "45+2'", "67'") est déjà la minute affichée du match.
+  // Fallback sur clock (secondes dans la période courante) + offset de période.
+  let minute: number | null = null;
+  if (status === 'IN_PLAY') {
+    minute = parseDisplayClock(st.displayClock);
+    if (minute === null && typeof st.clock === 'number') {
+      const periodOffset: Record<number, number> = { 1: 0, 2: 45, 3: 90, 4: 105 };
+      const offset = periodOffset[st.period ?? 1] ?? 0;
+      minute = offset + Math.floor(st.clock / 60);
+    }
+  } else if (status === 'PAUSED') {
+    const periodEnd: Record<number, number> = { 1: 45, 2: 90, 3: 105, 4: 120 };
+    minute = periodEnd[st.period ?? 1] ?? null;
   }
 
-  // Le tier gratuit de football-data.org renvoie null pour score.fullTime pendant IN_PLAY.
-  // On met 0-0 par défaut pour le début de match ; api-sports.io donnera le vrai score ensuite.
-  const isLive = status === 'IN_PLAY' || status === 'PAUSED';
+  const goals = extractGoals(json.keyEvents ?? [], home?.team?.id);
+
   return {
     status,
-    homeScore: json.score?.fullTime?.home ?? (isLive ? 0 : null),
-    awayScore: json.score?.fullTime?.away ?? (isLive ? 0 : null),
-    minute: json.minute ?? null,
+    homeScore: extractEspnScore(home?.score) ?? 0,
+    awayScore: extractEspnScore(away?.score) ?? 0,
+    minute,
+    goals,
   };
 }
 
-// api-sports.io : scores en temps réel pendant le match (100 req/jour partagés via Firestore).
-async function callApiSportsLive(): Promise<LiveMatchData | null> {
-  const res = await fetch(
-    `https://v3.football.api-sports.io/fixtures?team=${BARCA_APISPORTS_ID}&live=all`,
-    { headers: { 'x-apisports-key': API_SPORTS_KEY } }
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  const fixtures: any[] = json.response ?? [];
-  if (!fixtures.length) return null;
-
-  const f = fixtures[0];
-  const short: string = f.fixture?.status?.short ?? '';
-  const elapsed: number | null = f.fixture?.status?.elapsed ?? null;
-
-  let status: LiveMatchData['status'];
-  switch (short) {
-    case '1H': case '2H': case 'ET': case 'BT': case 'P': status = 'IN_PLAY'; break;
-    case 'HT': status = 'PAUSED'; break;
-    case 'FT': case 'AET': case 'PEN': status = 'FINISHED'; break;
-    default: return null;
-  }
-
-  return {
-    status,
-    homeScore: f.goals?.home ?? 0,
-    awayScore: f.goals?.away ?? 0,
-    minute: elapsed,
-  };
-}
-
-// Cache Firestore partagé — un seul appel API par TTL pour tous les utilisateurs.
-// Stratégie hybride : api-sports.io pour les scores live, football-data.org pour le reste.
-async function fetchLiveWithSharedCache(matchId: string): Promise<LiveMatchData | null> {
+// Cache Firestore partagé : un seul appel ESPN par TTL pour tous les utilisateurs.
+async function fetchLiveWithSharedCache(
+  eventId: string,
+  leagueSlug: string,
+  matchDateMs: number
+): Promise<LiveMatchData | null> {
   const cacheRef = doc(db, 'liveMatch', 'current');
+  const now = Date.now();
+  const msFromKO = now - matchDateMs;
+  const inKOWindow = msFromKO > -KO_WINDOW_BEFORE_MS && msFromKO < KO_WINDOW_AFTER_MS;
+
   let staleData: LiveMatchData | null = null;
 
   try {
     const snap = await getDoc(cacheRef);
     const cached = snap.data();
-    if (cached?.updatedAt) {
-      const age = Date.now() - cached.updatedAt.toMillis();
+    if (cached?.updatedAt && cached?.eventId === eventId) {
+      const age = now - cached.updatedAt.toMillis();
       const cachedStatus = cached.status as LiveMatchData['status'] | null;
 
-      let ttl = CACHE_MS_IDLE;
+      let ttl: number;
       if (cachedStatus === 'IN_PLAY') ttl = CACHE_MS_LIVE;
       else if (cachedStatus === 'PAUSED') ttl = CACHE_MS_PAUSED;
+      else if (inKOWindow) ttl = CACHE_MS_KICKOFF;
+      else ttl = CACHE_MS_IDLE;
 
       const fresh: LiveMatchData | null = cachedStatus ? {
         status: cachedStatus,
         homeScore: cached.homeScore,
         awayScore: cached.awayScore,
         minute: cached.minute,
+        goals: Array.isArray(cached.goals) ? cached.goals : [],
       } : null;
 
-      if (age < ttl) return fresh; // Cache encore valide → aucun appel API
-      staleData = fresh;           // Cache expiré → on garde pour fallback
+      if (age < ttl) return fresh;
+      staleData = fresh;
     }
   } catch {}
 
   try {
-    let live: LiveMatchData | null = null;
-    const wasLive = staleData?.status === 'IN_PLAY' || staleData?.status === 'PAUSED';
-
-    if (wasLive) {
-      if (staleData?.status === 'PAUSED') {
-        // Mi-temps : football-data.org pour détecter la reprise (0 appel api-sports.io)
-        live = await callFootballDataLive(matchId);
-        if (live?.status === 'IN_PLAY') {
-          // 2e mi-temps commencée → récupérer le vrai score depuis api-sports.io
-          const apiScore = await callApiSportsLive();
-          if (apiScore) live = apiScore;
-        }
-      } else {
-        // IN_PLAY → api-sports.io pour le score réel
-        live = await callApiSportsLive();
-        if (!live) {
-          // api-sports.io ne renvoie plus le match → confirmé terminé via football-data.org
-          live = await callFootballDataLive(matchId);
-        }
-      }
-    } else {
-      // Avant/après match → football-data.org (pas de quota journalier)
-      live = await callFootballDataLive(matchId);
-    }
+    const live = await callEspnLive(leagueSlug, eventId);
 
     setDoc(cacheRef, {
+      eventId,
       status: live?.status ?? null,
       homeScore: live?.homeScore ?? null,
       awayScore: live?.awayScore ?? null,
       minute: live?.minute ?? null,
+      goals: live?.goals ?? [],
       updatedAt: serverTimestamp(),
     }).catch(() => {});
 
     return live;
   } catch {
-    return staleData; // En cas d'erreur réseau → données périmées plutôt que null
+    return staleData;
   }
 }
 
@@ -314,12 +449,10 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     apiMatchIdRef.current = apiMatchId;
   }, [apiMatchId]);
 
-  // Quand l'app revient au premier plan, forcer un poll immédiat
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
       if (state === 'active') {
         forceRefreshRef.current?.();
-        // Recalculer la minute affichée immédiatement au retour
         if (minuteBaseRef.current && liveData?.status === 'IN_PLAY') {
           const elapsed = Math.floor((Date.now() - minuteBaseRef.current.at) / 60000);
           setLiveMinute(minuteBaseRef.current.minute + elapsed);
@@ -329,7 +462,6 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [liveData?.status]);
 
-  // Compteur de minute local — s'incrémente chaque minute sans appel API
   useEffect(() => {
     if (liveData?.status !== 'IN_PLAY') return;
     const interval = setInterval(() => {
@@ -410,16 +542,18 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     init();
   }, []);
 
-  // Polling live via API-Football — démarre 15 min avant le KO
+  // Polling live — résout l'ID ESPN du match (par date) puis poll ESPN summary
   useEffect(() => {
-    // Réinitialiser les données live à chaque changement de match pour éviter
-    // d'afficher des scores périmés du match précédent sur le prochain match
     setLiveData(null);
     prevLiveRef.current = null;
     if (!featuredMatch) { forceRefreshRef.current = null; return; }
+
     let stopped = false;
     let isFirstPoll = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let espnRefs: { eventId: string; leagueSlug: string } | null = null;
+    const matchDateMs = new Date(featuredMatch.date).getTime();
+    const matchDate = new Date(featuredMatch.date);
 
     const triggerNow = () => {
       if (stopped) return;
@@ -428,16 +562,51 @@ export function MatchProvider({ children }: { children: ReactNode }) {
     };
     forceRefreshRef.current = triggerNow;
 
+    const scheduleNext = (d: LiveMatchData | null) => {
+      if (stopped) return;
+      const now = Date.now();
+      const msFromKO = now - matchDateMs;
+      const inKO = msFromKO > -KO_WINDOW_BEFORE_MS && msFromKO < KO_WINDOW_AFTER_MS;
+
+      if (d?.status === 'IN_PLAY' || d?.status === 'PAUSED') {
+        timer = setTimeout(poll, POLL_INTERVAL_LIVE);
+      } else if (d?.status === 'FINISHED') {
+        // Plus de polling après la fin du match
+      } else if (inKO) {
+        timer = setTimeout(poll, POLL_INTERVAL_LIVE);
+      } else {
+        const msUntilPrematch = matchDateMs - KO_WINDOW_BEFORE_MS - PREMATCH_WINDOW_MS - now;
+        if (msUntilPrematch > 0) {
+          timer = setTimeout(poll, Math.min(msUntilPrematch, 3_600_000));
+        } else {
+          timer = setTimeout(poll, POLL_INTERVAL_PREMATCH);
+        }
+      }
+    };
+
     const poll = async () => {
       if (stopped) return;
-      const d = await fetchLiveWithSharedCache(apiMatchIdRef.current ?? '');
+      // Résolution paresseuse de l'ID ESPN (peut échouer si match pas encore dans les scoreboards)
+      if (!espnRefs) {
+        try { espnRefs = await resolveEspnMatch(matchDate); } catch {}
+      }
+      if (stopped) return;
+
+      const d = espnRefs
+        ? await fetchLiveWithSharedCache(espnRefs.eventId, espnRefs.leagueSlug, matchDateMs)
+        : null;
       if (stopped) return;
 
       if (d) {
         setLiveData(d);
         if (d.minute !== null) {
-          minuteBaseRef.current = { minute: d.minute, at: Date.now() };
-          setLiveMinute(d.minute);
+          // Ne ré-ancrer que si la minute ESPN a changé. Sinon, on garde le timestamp
+          // d'origine pour que le compteur local (interval 60s) puisse progresser tout seul.
+          const cur = minuteBaseRef.current;
+          if (!cur || cur.minute !== d.minute) {
+            minuteBaseRef.current = { minute: d.minute, at: Date.now() };
+            setLiveMinute(d.minute);
+          }
         }
 
         if (!isFirstPoll && notifReadyRef.current && prevLiveRef.current) {
@@ -460,49 +629,65 @@ export function MatchProvider({ children }: { children: ReactNode }) {
 
           if ((prev.status === 'IN_PLAY' || prev.status === 'PAUSED') && d.status === 'FINISHED') {
             sendMatchEndNotification(homeName, awayName, newHome, newAway);
-            setTimeout(() => { loadMonthly(true); loadFeatured(); }, 6000);
+            setDoc(doc(db, 'liveMatch', 'current'), {
+              eventId: null, status: null, homeScore: null, awayScore: null, minute: null,
+              updatedAt: serverTimestamp(),
+            }).catch(() => {});
+            setTimeout(async () => {
+              await loadMonthly(true);
+              try {
+                const result = await fetchNextScheduledMatch();
+                if (result) {
+                  setFeaturedMatch(result.featured);
+                  setApiMatchId(result.apiId);
+                  setNextMatches(result.next3);
+                  await saveCache(CACHE_KEY_FEATURED, result);
+                }
+              } catch {}
+            }, 8000);
           }
         }
 
         prevLiveRef.current = d;
         isFirstPoll = false;
-
-        const isLiveNow = d.status === 'IN_PLAY' || d.status === 'PAUSED';
-        if (isLiveNow) {
-          const interval = d.status === 'PAUSED' ? POLL_INTERVAL_PAUSED : POLL_INTERVAL_LIVE;
-          timer = setTimeout(poll, interval);
-        } else {
-          const msUntilKO = new Date(featuredMatch.date).getTime() - Date.now();
-          // Polling serré autour du KO pour détecter le début du match sans délai
-          const interval = msUntilKO < KICKOFF_WINDOW_MS ? POLL_INTERVAL_KICKOFF : POLL_INTERVAL_PREMATCH;
-          timer = setTimeout(poll, interval);
-        }
       } else {
         isFirstPoll = false;
-        const msUntilKO = new Date(featuredMatch.date).getTime() - Date.now();
-
-        if (msUntilKO > PREMATCH_WINDOW_MS) {
-          timer = setTimeout(poll, Math.min(msUntilKO - PREMATCH_WINDOW_MS, 3600000));
-        } else if (msUntilKO > -90 * 60 * 1000) {
-          const interval = msUntilKO < KICKOFF_WINDOW_MS ? POLL_INTERVAL_KICKOFF : POLL_INTERVAL_PREMATCH;
-          timer = setTimeout(poll, interval);
-        }
       }
+
+      scheduleNext(d);
     };
 
-    const msUntilKO = new Date(featuredMatch.date).getTime() - Date.now();
-    if (msUntilKO > PREMATCH_WINDOW_MS) {
-      timer = setTimeout(poll, Math.min(msUntilKO - PREMATCH_WINDOW_MS, 3600000));
+    const msUntilPrematch = matchDateMs - KO_WINDOW_BEFORE_MS - PREMATCH_WINDOW_MS - Date.now();
+    if (msUntilPrematch > 0) {
+      timer = setTimeout(poll, Math.min(msUntilPrematch, 3_600_000));
     } else {
       poll();
     }
 
     return () => { stopped = true; if (timer) clearTimeout(timer); forceRefreshRef.current = null; };
-  }, [featuredMatch?.date]);
+  }, [featuredMatch?.date, featuredMatch?.id]);
+
+  // Applique le score + statut live directement dans monthlyMatches pour que tous les
+  // écrans (Notes, Pronostics, Admin) voient instantanément le match comme "terminé".
+  const enrichedMonthlyMatches = useMemo(() => {
+    if (!liveData || !apiMatchId) return monthlyMatches;
+    const isFinished = liveData.status === 'FINISHED';
+    const isLive = liveData.status === 'IN_PLAY' || liveData.status === 'PAUSED';
+    if (!isFinished && !isLive) return monthlyMatches;
+    return monthlyMatches.map(m => {
+      if (m.id !== apiMatchId) return m;
+      return {
+        ...m,
+        homeScore: liveData.homeScore ?? m.homeScore,
+        awayScore: liveData.awayScore ?? m.awayScore,
+        status: isFinished ? 'finished' as const : 'live' as const,
+      };
+    });
+  }, [monthlyMatches, liveData, apiMatchId]);
 
   return (
     <MatchContext.Provider value={{
-      featuredMatch, nextMatches, monthlyMatches,
+      featuredMatch, nextMatches, monthlyMatches: enrichedMonthlyMatches,
       isLoadingMatches, isLoadingMonthly, monthlyError,
       retryMonthly: () => loadMonthly(true),
       setFeaturedMatch, apiMatchId, setApiMatchId, liveData, liveMinute,

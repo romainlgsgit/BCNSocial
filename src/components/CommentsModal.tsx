@@ -7,12 +7,13 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   SafeAreaView,
   ActivityIndicator,
   Image,
+  Keyboard,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import {
   collection,
@@ -27,6 +28,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
+import { usePremium } from '../context/PremiumContext';
 import { Comment } from '../types';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import VerifiedBadge from './VerifiedBadge';
@@ -53,10 +55,25 @@ interface Props {
 
 export default function CommentsModal({ visible, postId, onClose }: Props) {
   const { user } = useAuth();
+  const { isPremium } = usePremium();
+  const insets = useSafeAreaInsets();
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    );
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   useEffect(() => {
     if (!visible || !postId) return;
@@ -105,17 +122,18 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-        <SafeAreaView style={styles.root}>
+      <SafeAreaView style={styles.root}>
+        <View style={[styles.flex, { paddingBottom: keyboardHeight > 0 ? keyboardHeight - insets.bottom : 0 }]}>
           {/* Toolbar */}
           <View style={styles.toolbar}>
-            <Text style={styles.toolbarTitle}>Commentaires</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color={Colors.textSecondary} />
-            </TouchableOpacity>
+            <View style={styles.dragHandle} />
+            <View style={styles.toolbarRow}>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="chevron-down" size={24} color={Colors.textSecondary} />
+              </TouchableOpacity>
+              <Text style={styles.toolbarTitle}>Commentaires</Text>
+              <View style={{ width: 40 }} />
+            </View>
           </View>
 
           {/* Comments list */}
@@ -131,8 +149,11 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={
                 <View style={styles.centered}>
-                  <Text style={styles.emptyIcon}>💬</Text>
-                  <Text style={styles.emptyText}>Sois le premier à commenter !</Text>
+                  <View style={styles.emptyIconCircle}>
+                    <Ionicons name="chatbubbles-outline" size={38} color={Colors.primary} />
+                  </View>
+                  <Text style={styles.emptyTitle}>Aucun commentaire</Text>
+                  <Text style={styles.emptyText}>Sois le premier à donner ton avis !</Text>
                 </View>
               }
               renderItem={({ item }) => (
@@ -153,7 +174,9 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
                   <View style={styles.commentBubble}>
                     <View style={styles.commentHeader}>
                       <Text style={styles.commentUsername}>{item.username}</Text>
-                      {(item.userId === user?.id ? user?.verified : item.verified) && (
+                      {(item.userId === user?.id
+                        ? ((user?.verified ?? false) && isPremium)
+                        : (item.verified ?? false)) && (
                         <VerifiedBadge size={13} />
                       )}
                       <Text style={styles.commentTime}>{formatTimeAgo(item.createdAt)}</Text>
@@ -209,8 +232,8 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
               </TouchableOpacity>
             </View>
           )}
-        </SafeAreaView>
-      </KeyboardAvoidingView>
+        </View>
+      </SafeAreaView>
     </Modal>
   );
 }
@@ -224,26 +247,37 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   toolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
+    backgroundColor: Colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    backgroundColor: Colors.surface,
+    paddingBottom: 14,
+  },
+  dragHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3a3a3a',
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 14,
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
   },
   toolbarTitle: {
     flex: 1,
     color: Colors.text,
-    fontSize: FontSize.md,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     textAlign: 'center',
+    letterSpacing: 0.2,
   },
   closeBtn: {
-    position: 'absolute',
-    right: Spacing.md,
-    padding: 4,
+    width: 40,
+    alignItems: 'flex-start',
   },
   listContent: {
     padding: Spacing.md,
@@ -255,10 +289,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 60,
-    gap: 8,
+    gap: 12,
   },
-  emptyIcon: {
-    fontSize: 36,
+  emptyIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.primary + '15',
+    borderWidth: 1.5,
+    borderColor: Colors.primary + '30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    color: Colors.text,
+    fontSize: 16,
+    fontWeight: '700',
   },
   emptyText: {
     color: Colors.textMuted,

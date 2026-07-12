@@ -6,9 +6,14 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
+  Image,
 } from 'react-native';
+import { getPlayerPhoto } from '../utils/playerPhotos';
+import { usePlayers } from '../context/PlayersContext';
+import { useLocalPlayerPhotos } from '../utils/localPlayerPhotos';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
-import { PLAYERS, MATCHES } from '../data/mockData';
+import { MATCHES } from '../data/mockData';
 import { Match, Player } from '../types';
 import { useRatings, PlayerStats } from '../context/RatingsContext';
 import { useFeaturedMatch } from '../context/MatchContext';
@@ -57,6 +62,25 @@ const rbStyles = StyleSheet.create({
 
 // ─── SeasonPlayerCard ─────────────────────────────────────────────────────────
 
+function PlayerAvatar({ player }: { player: Player }) {
+  const { map: localPhotos } = useLocalPlayerPhotos();
+  const photoUrl = localPhotos[player.id] || player.photoUrl || getPlayerPhoto(player.name);
+  if (photoUrl) {
+    return (
+      <Image
+        source={{ uri: photoUrl }}
+        style={styles.playerPhotoImg}
+        resizeMode="cover"
+      />
+    );
+  }
+  return (
+    <View style={styles.playerPhoto}>
+      <Text style={styles.playerPhotoText}>{player.photo}</Text>
+    </View>
+  );
+}
+
 function SeasonPlayerCard({
   player,
   rank,
@@ -72,17 +96,15 @@ function SeasonPlayerCard({
     <View style={styles.playerCard}>
       <View style={styles.rankBlock}>
         {isTop ? (
-          <Text style={styles.rankMedal}>
-            {rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}
-          </Text>
+          <View style={[styles.rankBadge, { backgroundColor: rank === 1 ? '#FFD700' : rank === 2 ? '#C0C0C0' : '#CD7F32' }]}>
+            <Text style={styles.rankBadgeText}>{rank}</Text>
+          </View>
         ) : (
           <Text style={styles.rankNumber}>{rank}</Text>
         )}
       </View>
 
-      <View style={styles.playerPhoto}>
-        <Text style={styles.playerPhotoText}>{player.photo}</Text>
-      </View>
+      <PlayerAvatar player={player} />
 
       <View style={styles.playerInfo}>
         <View style={styles.playerNameRow}>
@@ -151,9 +173,8 @@ function NextMatchCard({ match }: { match: Match }) {
         </View>
       </View>
       <View style={styles.nextMatchFooter}>
-        <Text style={styles.nextMatchHint}>
-          ⏳ Le vote s'ouvre à la fin du match · dure 72h
-        </Text>
+        <Ionicons name="time-outline" size={13} color={Colors.textMuted} />
+        <Text style={styles.nextMatchHint}>Le vote s'ouvre à la fin du match · dure 72h</Text>
       </View>
     </View>
   );
@@ -164,6 +185,7 @@ function NextMatchCard({ match }: { match: Match }) {
 export default function RatingsScreen() {
   const [activePosition, setActivePosition] = useState<Position>('Tous');
   const { getLineup, playerStats } = useRatings();
+  const { players: PLAYERS } = usePlayers();
   const { monthlyMatches, featuredMatch, isLoadingMonthly } = useFeaturedMatch();
 
   const activeVotingMatch = useMemo(
@@ -186,16 +208,19 @@ export default function RatingsScreen() {
 
   const subtitle = activeVotingMatch
     ? lineup
-      ? '🔴 Vote en cours · Saison 2025/26'
-      : '⏳ Compo en attente · Saison 2025/26'
-    : 'Saison 2025/26';
+      ? 'Vote en cours · Saison 2026/27'
+      : 'Compo en attente · Saison 2026/27'
+    : 'Saison 2026/27';
 
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
 
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>⭐ Notes</Text>
+        <View style={styles.headerTitleRow}>
+          <Ionicons name="star" size={20} color={Colors.gold} />
+          <Text style={styles.headerTitle}>Notes</Text>
+        </View>
         <Text style={styles.headerSub}>{subtitle}</Text>
       </View>
 
@@ -216,7 +241,7 @@ export default function RatingsScreen() {
             <NextMatchCard match={nextMatch} />
           ) : (
             <View style={styles.noVoteCard}>
-              <Text style={styles.noVoteIcon}>⏳</Text>
+              <Ionicons name="time-outline" size={32} color={Colors.textMuted} />
               <Text style={styles.noVoteTitle}>Aucun vote en cours</Text>
               <Text style={styles.noVoteText}>
                 Le vote s'ouvre après chaque match et dure 72h.{'\n'}
@@ -282,6 +307,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingBottom: Spacing.md,
   },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
   headerSub: { fontSize: FontSize.sm, color: Colors.textSecondary, marginTop: Spacing.xs },
 
@@ -360,7 +386,10 @@ const styles = StyleSheet.create({
     borderTopColor: Colors.border,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
   },
   nextMatchHint: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center' },
 
@@ -401,7 +430,14 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   rankBlock: { width: 28, alignItems: 'center' },
-  rankMedal: { fontSize: 22 },
+  rankBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankBadgeText: { fontSize: 11, fontWeight: '900', color: '#111' },
   rankNumber: { fontSize: FontSize.md, fontWeight: '700', color: Colors.textMuted },
   playerPhoto: {
     width: 48,
@@ -412,6 +448,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: Colors.border,
+  },
+  playerPhotoImg: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surfaceLight,
   },
   playerPhotoText: { fontSize: 24 },
   playerInfo: { flex: 1 },

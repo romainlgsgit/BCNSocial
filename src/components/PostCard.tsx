@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
+import { usePremium } from '../context/PremiumContext';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Post, PostTag } from '../types';
 import CommentsModal from './CommentsModal';
@@ -38,12 +39,19 @@ function formatTimeAgo(dateStr: string): string {
 
 export default function PostCard({ post, onDelete }: { post: Post; onDelete?: () => void }) {
   const { user } = useAuth();
+  const { isPremium } = usePremium();
+  const [imageRatio, setImageRatio] = useState<number | null>(null);
   const navigation = useNavigation<any>();
   const [showComments, setShowComments] = useState(false);
 
   const likedBy = post.likedBy ?? [];
   const liked = user ? likedBy.includes(user.id) : false;
   const likeCount = likedBy.length;
+
+  const isOwnPost = user?.id === post.userId;
+  const isVerified = isOwnPost
+    ? ((user?.verified ?? false) && isPremium)
+    : (post.verified ?? false);
 
   const tagColor = post.tag ? TAG_COLORS[post.tag] : undefined;
 
@@ -80,7 +88,7 @@ export default function PostCard({ post, onDelete }: { post: Post; onDelete?: ()
           <View style={styles.userMeta}>
             <View style={styles.usernameRow}>
               <Text style={styles.username}>{post.username}</Text>
-              {post.verified && <VerifiedBadge size={15} />}
+              {isVerified && <VerifiedBadge size={15} />}
             </View>
             <Text style={styles.time}>{formatTimeAgo(post.createdAt)}</Text>
           </View>
@@ -101,7 +109,41 @@ export default function PostCard({ post, onDelete }: { post: Post; onDelete?: ()
       </View>
 
       {/* Content */}
-      <Text style={styles.content}>{post.content}</Text>
+      {post.content ? (
+        <Text style={styles.content}>
+          {post.content.split(/(@\w+)/g).map((part, i) => {
+            if (part.startsWith('@')) {
+              const username = part.slice(1);
+              const mentioned = post.mentionedUsers?.find(m => m.username === username);
+              if (mentioned) {
+                return (
+                  <Text
+                    key={i}
+                    style={styles.mention}
+                    onPress={() => navigation.navigate('UserProfile', { userId: mentioned.id })}
+                  >
+                    {part}
+                  </Text>
+                );
+              }
+            }
+            return <Text key={i}>{part}</Text>;
+          })}
+        </Text>
+      ) : null}
+
+      {/* Image */}
+      {post.imageBase64 ? (
+        <Image
+          source={{ uri: `data:image/jpeg;base64,${post.imageBase64}` }}
+          style={[styles.postImage, imageRatio ? { aspectRatio: imageRatio } : { aspectRatio: 1 }]}
+          resizeMode="cover"
+          onLoad={e => {
+            const { width, height } = e.nativeEvent.source;
+            if (width && height) setImageRatio(width / height);
+          }}
+        />
+      ) : null}
 
       {/* Actions */}
       <View style={styles.actions}>
@@ -208,7 +250,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#E8E8E8',
     lineHeight: 22,
+    marginBottom: 10,
+  },
+  mention: {
+    color: '#4A9EFF',
+    fontWeight: '600',
+  },
+  postImage: {
+    width: '100%',
+    borderRadius: 12,
     marginBottom: 14,
+    backgroundColor: '#1a1a1a',
   },
   actions: {
     flexDirection: 'row',

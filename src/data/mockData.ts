@@ -88,7 +88,7 @@ export const MATCHES: Match[] = [
   },
 ];
 
-// ─── Squad FC Barcelona 2025/26 ───────────────────────────────────────────────
+// ─── Squad FC Barcelona 2026/27 ───────────────────────────────────────────────
 
 export const PLAYERS: Player[] = [
   // ── Gardiens ──

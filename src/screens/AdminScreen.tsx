@@ -14,6 +14,7 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,15 +22,17 @@ import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { collection, query, where, getDocs, doc, updateDoc, writeBatch, limit } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { saveLocalPlayerPhoto, useLocalPlayerPhotos } from '../utils/localPlayerPhotos';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import VerifiedBadge from '../components/VerifiedBadge';
 import { useFeaturedMatch } from '../context/MatchContext';
 import { useProno, BetPrediction, MatchOdds, PronoMatch } from '../context/PronoContext';
 import { useAuth } from '../context/AuthContext';
 import { useRatings } from '../context/RatingsContext';
+import { usePlayers } from '../context/PlayersContext';
 import { PLAYERS } from '../data/mockData';
 
-import { Team, Match } from '../types';
+import { Team, Match, Player } from '../types';
 
 // ─── Club Presets ──────────────────────────────────────────────────────────────
 
@@ -997,6 +1000,291 @@ function LineupModal({ visible, onClose }: { visible: boolean; onClose: () => vo
   );
 }
 
+// ─── Players Manage Modal ──────────────────────────────────────────────────────
+
+const POSITIONS_LIST = ['GK', 'DEF', 'MID', 'ATT'];
+const POSITION_EMOJIS: Record<string, string> = { GK: '🧤', DEF: '🛡️', MID: '⚙️', ATT: '⚡' };
+
+const EMPTY_PLAYER = (): Omit<Player, 'averageRating' | 'totalVotes'> => ({
+  id: `p_${Date.now()}`,
+  name: '',
+  position: 'ATT',
+  number: 0,
+  photo: '⚽',
+  nationality: '🏳️',
+  photoUrl: '',
+});
+
+function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { players, addPlayer, updatePlayer, deletePlayer } = usePlayers();
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [view, setView] = useState<'list' | 'form'>('list');
+  const [form, setForm] = useState(EMPTY_PLAYER());
+  const [search, setSearch] = useState('');
+
+  const openForm = (player: Player | null) => {
+    setEditingPlayer(player);
+    setForm(player ?? EMPTY_PLAYER());
+    setView('form');
+  };
+
+  const closeForm = () => {
+    setView('list');
+    setEditingPlayer(null);
+  };
+
+  const [uploading, setUploading] = useState(false);
+  const { map: localPhotos, refresh: refreshPhotos } = useLocalPlayerPhotos();
+
+  const pickPhoto = async () => {
+    const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      if (!canAskAgain) {
+        Alert.alert(
+          'Accès photos refusé',
+          'Va dans Réglages → BCNSocial → Photos et autorise l\'accès.',
+          [
+            { text: 'Annuler', style: 'cancel' },
+            { text: 'Ouvrir Réglages', onPress: () => Linking.openSettings() },
+          ]
+        );
+      }
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, aspect: [1, 1], quality: 0.7,
+    });
+    if (result.canceled) return;
+
+    try {
+      setUploading(true);
+      const uri = result.assets[0].uri;
+      const playerId = form.id || `p_${Date.now()}`;
+      const localPath = await saveLocalPlayerPhoto(playerId, uri);
+      setForm(f => ({ ...f, id: playerId, photoUrl: localPath }));
+      refreshPhotos();
+    } catch (e: any) {
+      Alert.alert('Erreur', String(e?.message || e));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { Alert.alert('Nom manquant'); return; }
+    if (!form.number || form.number < 1) { Alert.alert('Numéro invalide'); return; }
+
+    // Ne pas stocker les chemins locaux (file://) dans Firestore
+    const isLocal = (form.photoUrl ?? '').startsWith('file://');
+    const firestoreForm = { ...form, photoUrl: isLocal ? '' : (form.photoUrl ?? '') };
+
+    try {
+      if (editingPlayer) {
+        await updatePlayer({ ...editingPlayer, ...firestoreForm });
+      } else {
+        await addPlayer(firestoreForm);
+      }
+      closeForm();
+    } catch (e: any) {
+      Alert.alert('Erreur Firebase', String(e?.message || e));
+    }
+  };
+
+  const handleDelete = (player: Player) => {
+    Alert.alert(`Supprimer ${player.name} ?`, 'Cette action est irréversible.', [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => deletePlayer(player.id) },
+    ]);
+  };
+
+  const filtered = players.filter(p =>
+    p.name.toLowerCase().includes(search.toLowerCase()) ||
+    p.position.toLowerCase().includes(search.toLowerCase())
+  );
+  const grouped = POSITIONS_LIST.map(pos => ({
+    pos, label: `${POSITION_EMOJIS[pos]}  ${pos}`,
+    players: filtered.filter(p => p.position === pos),
+  })).filter(g => g.players.length > 0);
+
+  const photoSource = form.photoUrl ? { uri: form.photoUrl } : null;
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={view === 'form' ? closeForm : onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
+
+          {/* Header */}
+          <View style={styles.editHeader}>
+            {view === 'form' ? (
+              <TouchableOpacity onPress={closeForm}>
+                <Text style={styles.editCancelText}>← Retour</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={{ width: 60 }} />
+            )}
+            <Text style={styles.editTitle}>{view === 'form' ? (editingPlayer ? 'Modifier' : 'Nouveau joueur') : 'Joueurs'}</Text>
+            {view === 'form' ? (
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+                <Text style={styles.saveBtnText}>Enregistrer</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity onPress={onClose} style={{ width: 60, alignItems: 'flex-end' }}>
+                <Text style={styles.editCancelText}>Fermer</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* ── Vue liste ── */}
+          {view === 'list' && (
+            <>
+              <View style={pStyles.topBar}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  placeholder="Rechercher..."
+                  placeholderTextColor={Colors.textMuted}
+                  value={search}
+                  onChangeText={setSearch}
+                />
+                <TouchableOpacity style={pStyles.addBtn} onPress={() => openForm(null)} activeOpacity={0.8}>
+                  <Text style={pStyles.addBtnText}>+ Ajouter</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+                {grouped.map(({ pos, label, players: grpPlayers }) => (
+                  <View key={pos}>
+                    <View style={lStyles.posHeader}>
+                      <Text style={lStyles.posHeaderText}>{label}  ({grpPlayers.length})</Text>
+                    </View>
+                    {grpPlayers.map(player => {
+                      const resolvedPhoto = localPhotos[player.id] || player.photoUrl;
+                      const photoSrc = resolvedPhoto ? { uri: resolvedPhoto } : null;
+                      return (
+                        <View key={player.id} style={pStyles.playerRow}>
+                          <View style={pStyles.playerAvatar}>
+                            {photoSrc ? (
+                              <Image source={photoSrc} style={pStyles.avatarImg} />
+                            ) : (
+                              <Text style={{ fontSize: 22 }}>{player.photo}</Text>
+                            )}
+                          </View>
+                          <TouchableOpacity style={{ flex: 1 }} onPress={() => openForm(player)} activeOpacity={0.8}>
+                            <Text style={pStyles.playerName}>{player.name}</Text>
+                            <Text style={pStyles.playerMeta}>N°{player.number}  ·  {player.nationality}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={pStyles.editBtn} onPress={() => openForm(player)} activeOpacity={0.7}>
+                            <Text style={pStyles.editBtnText}>✏️</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={pStyles.deleteBtn} onPress={() => handleDelete(player)} activeOpacity={0.7}>
+                            <Text style={pStyles.deleteBtnText}>🗑️</Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))}
+                <View style={{ height: 40 }} />
+              </ScrollView>
+            </>
+          )}
+
+          {/* ── Vue formulaire ── */}
+          {view === 'form' && (
+            <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.md }} showsVerticalScrollIndicator={false}>
+              <View style={pStyles.photoRow}>
+                <TouchableOpacity style={pStyles.photoCircle} onPress={pickPhoto} activeOpacity={0.8}>
+                  {photoSource ? (
+                    <Image source={photoSource} style={pStyles.photoImg} />
+                  ) : (
+                    <Text style={{ fontSize: 36 }}>{form.photo}</Text>
+                  )}
+                  <View style={pStyles.photoBadge}>
+                    <Text style={{ fontSize: 12 }}>📷</Text>
+                  </View>
+                </TouchableOpacity>
+                <View style={{ flex: 1, gap: 8 }}>
+                  <Text style={styles.inputLabel}>URL photo (optionnel)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.photoUrl ?? ''}
+                    onChangeText={v => setForm(f => ({ ...f, photoUrl: v }))}
+                    placeholder="https://..."
+                    placeholderTextColor={Colors.textMuted}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                  />
+                  <TouchableOpacity style={pStyles.galleryBtn} onPress={pickPhoto} activeOpacity={0.8} disabled={uploading}>
+                    {uploading
+                      ? <ActivityIndicator size="small" color={Colors.textSecondary} />
+                      : <Text style={pStyles.galleryBtnText}>Choisir depuis la galerie</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View>
+                <Text style={styles.inputLabel}>Nom complet</Text>
+                <TextInput
+                  style={styles.input}
+                  value={form.name}
+                  onChangeText={v => setForm(f => ({ ...f, name: v }))}
+                  placeholder="Lamine Yamal"
+                  placeholderTextColor={Colors.textMuted}
+                />
+              </View>
+
+              <View style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Numéro</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.number ? String(form.number) : ''}
+                    onChangeText={v => setForm(f => ({ ...f, number: parseInt(v) || 0 }))}
+                    placeholder="10"
+                    placeholderTextColor={Colors.textMuted}
+                    keyboardType="number-pad"
+                    maxLength={2}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.inputLabel}>Nationalité (emoji)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={form.nationality}
+                    onChangeText={v => setForm(f => ({ ...f, nationality: v }))}
+                    placeholder="🇪🇸"
+                    placeholderTextColor={Colors.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View>
+                <Text style={styles.inputLabel}>Poste</Text>
+                <View style={pStyles.posRow}>
+                  {POSITIONS_LIST.map(pos => (
+                    <TouchableOpacity
+                      key={pos}
+                      style={[pStyles.posBtn, form.position === pos && pStyles.posBtnActive]}
+                      onPress={() => setForm(f => ({ ...f, position: pos, photo: POSITION_EMOJIS[pos] }))}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ fontSize: 18 }}>{POSITION_EMOJIS[pos]}</Text>
+                      <Text style={[pStyles.posBtnText, form.position === pos && pStyles.posBtnTextActive]}>{pos}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          )}
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ─── Main Admin Screen ─────────────────────────────────────────────────────────
 
 export default function AdminScreen() {
@@ -1007,6 +1295,7 @@ export default function AdminScreen() {
   const [showSettlePast, setShowSettlePast] = useState(false);
   const [showCertification, setShowCertification] = useState(false);
   const [showLineup, setShowLineup] = useState(false);
+  const [showPlayers, setShowPlayers] = useState(false);
 
   return (
     <View style={styles.root}>
@@ -1055,6 +1344,7 @@ export default function AdminScreen() {
           { icon: '✅', title: 'Certifications', desc: 'Accorder ou retirer le badge certifié', onPress: () => setShowCertification(true) },
           { icon: '📰', title: 'Actualités', desc: 'Publier et modifier les articles', onPress: undefined },
           { icon: '📋', title: 'Compo du match', desc: 'Valider la composition après chaque match', onPress: () => setShowLineup(true) },
+          { icon: '👥', title: 'Joueurs', desc: 'Ajouter, modifier ou supprimer des joueurs', onPress: () => setShowPlayers(true) },
           { icon: '🪙', title: 'Pièces', desc: 'Attribuer ou retirer des pièces aux membres', onPress: undefined },
         ].map(s => (
           <TouchableOpacity key={s.title} style={styles.card} activeOpacity={0.75} onPress={s.onPress}>
@@ -1077,6 +1367,7 @@ export default function AdminScreen() {
       <SettlePastMatchModal visible={showSettlePast} onClose={() => setShowSettlePast(false)} />
       <CertificationModal visible={showCertification} onClose={() => setShowCertification(false)} />
       <LineupModal visible={showLineup} onClose={() => setShowLineup(false)} />
+      <PlayersManageModal visible={showPlayers} onClose={() => setShowPlayers(false)} />
     </View>
   );
 }
@@ -1200,6 +1491,35 @@ const styles = StyleSheet.create({
   certToggleBtnGrant: { backgroundColor: '#1D9BF0' },
   certToggleBtnRevoke: { backgroundColor: Colors.error },
   certToggleText: { color: '#fff', fontSize: FontSize.sm, fontWeight: '700' },
+});
+
+// ─── Players Modal Styles ─────────────────────────────────────────────────────
+
+const pStyles = StyleSheet.create({
+  topBar: { flexDirection: 'row', gap: 8, padding: Spacing.md, alignItems: 'center' },
+  addBtn: { backgroundColor: Colors.primary, borderRadius: BorderRadius.md, paddingHorizontal: 14, paddingVertical: 11 },
+  addBtnText: { color: '#fff', fontWeight: '700', fontSize: FontSize.sm },
+  playerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#111', gap: 10 },
+  playerAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1f1f1f', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 44, height: 44, borderRadius: 22 },
+  playerName: { color: Colors.text, fontSize: FontSize.sm, fontWeight: '700' },
+  playerMeta: { color: Colors.textMuted, fontSize: 11, marginTop: 2 },
+  editBtn: { padding: 8 },
+  editBtnText: { fontSize: 18 },
+  deleteBtn: { padding: 8 },
+  deleteBtnText: { fontSize: 18 },
+
+  photoRow: { flexDirection: 'row', gap: Spacing.md, alignItems: 'flex-start' },
+  photoCircle: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#1f1f1f', alignItems: 'center', justifyContent: 'center', overflow: 'visible' },
+  photoImg: { width: 88, height: 88, borderRadius: 44 },
+  photoBadge: { position: 'absolute', bottom: 0, right: 0, backgroundColor: '#333', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  galleryBtn: { backgroundColor: '#1f1f1f', borderRadius: BorderRadius.md, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#2a2a2a' },
+  galleryBtnText: { color: Colors.textSecondary, fontSize: FontSize.xs, fontWeight: '600' },
+  posRow: { flexDirection: 'row', gap: 8 },
+  posBtn: { flex: 1, alignItems: 'center', paddingVertical: 10, backgroundColor: '#1a1a1a', borderRadius: BorderRadius.md, borderWidth: 1.5, borderColor: '#2a2a2a', gap: 4 },
+  posBtnActive: { backgroundColor: Colors.primary + '22', borderColor: Colors.primary },
+  posBtnText: { color: Colors.textMuted, fontSize: 11, fontWeight: '700' },
+  posBtnTextActive: { color: Colors.primary },
 });
 
 // ─── Lineup Modal Styles ───────────────────────────────────────────────────────

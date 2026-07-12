@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useProno, BetPrediction, PronoMatch, UserBet } from '../context/PronoContext';
@@ -318,7 +319,10 @@ export default function PronosticsScreen({ onNavigateToProfile }: Props) {
       <View style={styles.root}>
         <StatusBar barStyle="light-content" />
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>🎯 Pronostics</Text>
+          <View style={styles.headerTitleRow}>
+          <Ionicons name="trophy" size={20} color={Colors.gold} />
+          <Text style={styles.headerTitle}>Pronostics</Text>
+        </View>
         </View>
         <ScrollView showsVerticalScrollIndicator={false}>
           <GuestScreen onNavigateToProfile={onNavigateToProfile} />
@@ -333,7 +337,10 @@ export default function PronosticsScreen({ onNavigateToProfile }: Props) {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>🎯 Pronostics</Text>
+        <View style={styles.headerTitleRow}>
+          <Ionicons name="trophy" size={20} color={Colors.gold} />
+          <Text style={styles.headerTitle}>Pronostics</Text>
+        </View>
         <View style={styles.coinsChip}>
           <Text style={styles.coinsText}>🪙 {user!.coins}</Text>
         </View>
@@ -396,6 +403,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
 
   coinsChip: {

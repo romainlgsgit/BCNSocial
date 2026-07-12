@@ -217,7 +217,14 @@ export default function PremiumScreen({ visible, onClose }: Props) {
                   </TouchableOpacity>
 
                   <Text style={styles.legalText}>
-                    L'abonnement se renouvelle automatiquement. Tu peux annuler à tout moment depuis les réglages Apple.
+                    L'abonnement se renouvelle automatiquement. Tu peux annuler à tout moment depuis les réglages Apple.{' '}
+                    <Text style={styles.legalLink} onPress={() => Linking.openURL('https://romainlgsgit.github.io/BCNSocial/privacy.html')}>
+                      Politique de confidentialité
+                    </Text>
+                    {' · '}
+                    <Text style={styles.legalLink} onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
+                      Conditions d'utilisation
+                    </Text>
                   </Text>
 
                   <TouchableOpacity onPress={handleRestore} disabled={restoring} style={styles.restoreBtn}>
@@ -353,6 +360,9 @@ const styles = StyleSheet.create({
   legalText: {
     color: Colors.textMuted, fontSize: 11, textAlign: 'center',
     lineHeight: 16, marginTop: 12,
+  },
+  legalLink: {
+    color: Colors.primary, textDecorationLine: 'underline',
   },
   restoreBtn: { alignItems: 'center', marginTop: 14, padding: 8 },
   restoreText: { color: Colors.textMuted, fontSize: 12, fontWeight: '600', textDecorationLine: 'underline' },

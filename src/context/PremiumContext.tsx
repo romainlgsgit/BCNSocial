@@ -15,7 +15,7 @@ const RC_API_KEY_ANDROID = 'goog_YOUR_REVENUECAT_ANDROID_KEY';
 // IDs des produits App Store Connect (à créer dans ASC)
 export const PRODUCT_IDS = {
   monthly: 'bcnsocial_premium_monthly',  // 2,99€/mois
-  annual:  'bcnsocial_premium_annual',   // 19,99€/an
+  annual:  'bcnsocial_premium_yearly',   // 19,99€/an
 };
 
 // Bonus pièces au renouvellement

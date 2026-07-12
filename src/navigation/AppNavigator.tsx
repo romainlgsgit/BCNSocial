@@ -7,31 +7,55 @@ import HomeScreen from '../screens/HomeScreen';
 import MatchesScreen from '../screens/MatchesScreen';
 import RatingsScreen from '../screens/RatingsScreen';
 import PronosticsScreen from '../screens/PronosticsScreen';
+import QuizScreen from '../screens/QuizScreen';
+import GamesHubScreen from '../screens/GamesHubScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AdminScreen from '../screens/AdminScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import { Colors } from '../theme';
 
 export type RootTabParamList = {
   Home: undefined;
   Matches: undefined;
   Players: undefined;
-  Pronostics: undefined;
+  Games: undefined;
   Profile: undefined;
+};
+
+export type GamesStackParamList = {
+  GamesHub: undefined;
+  Pronostics: undefined;
+  Quiz: undefined;
 };
 
 export type RootStackParamList = {
   MainTabs: undefined;
   Admin: undefined;
   UserProfile: { userId: string };
+  Settings: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 const Stack = createStackNavigator<RootStackParamList>();
+const GamesStack = createStackNavigator<GamesStackParamList>();
+
+function GamesNavigator() {
+  const profileRef = useRef<any>(null);
+  return (
+    <GamesStack.Navigator screenOptions={{ headerShown: false }}>
+      <GamesStack.Screen name="GamesHub" component={GamesHubScreen} />
+      <GamesStack.Screen name="Pronostics">
+        {() => <PronosticsScreen onNavigateToProfile={() => profileRef.current?.navigate('Profile')} />}
+      </GamesStack.Screen>
+      <GamesStack.Screen name="Quiz">
+        {() => <QuizScreen onNavigateToProfile={() => profileRef.current?.navigate('Profile')} />}
+      </GamesStack.Screen>
+    </GamesStack.Navigator>
+  );
+}
 
 function MainTabs() {
-  const tabRef = useRef<any>(null);
-
   return (
     <Tab.Navigator
       screenOptions={{
@@ -77,15 +101,14 @@ function MainTabs() {
         }}
       />
       <Tab.Screen
-        name="Pronostics"
+        name="Games"
+        component={GamesNavigator}
         options={{
           tabBarIcon: ({ focused, color }) => (
-            <Ionicons name={focused ? 'trophy' : 'trophy-outline'} size={26} color={color} />
+            <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} size={26} color={color} />
           ),
         }}
-      >
-        {() => <PronosticsScreen onNavigateToProfile={() => tabRef.current?.navigate('Profile')} />}
-      </Tab.Screen>
+      />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
@@ -115,6 +138,11 @@ export default function AppNavigator({ navigationRef }: Props) {
       <Stack.Screen
         name="UserProfile"
         component={UserProfileScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
         options={{ presentation: 'card' }}
       />
     </Stack.Navigator>

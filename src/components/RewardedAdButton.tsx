@@ -1,13 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TouchableOpacity, Text, StyleSheet, View } from 'react-native';
-import { RewardedAd, RewardedAdEventType, AdEventType, TestIds } from 'react-native-google-mobile-ads';
+import { RewardedAd } from 'react-native-applovin-max';
+import { AD_UNITS, ADS_CONFIGURED } from '../config/ads';
 import { Colors, BorderRadius, FontSize, Spacing } from '../theme';
 import { useAuth } from '../context/AuthContext';
 
-// ← Remplacer par ton vrai ID AdMob iOS en production
-const UNIT_ID = __DEV__
-  ? TestIds.REWARDED
-  : 'ca-app-pub-1040134367659445/5142174321';
+const UNIT_ID = AD_UNITS.rewarded;
 
 const BONUS_COINS = 50;
 
@@ -16,7 +14,6 @@ type Status = 'loading' | 'ready' | 'success';
 export default function RewardedAdButton() {
   const { updateCoins } = useAuth();
   const [status, setStatus] = useState<Status>('loading');
-  const adRef = useRef<RewardedAd | null>(null);
   const updateCoinsRef = useRef(updateCoins);
 
   useEffect(() => {
@@ -24,32 +21,31 @@ export default function RewardedAdButton() {
   }, [updateCoins]);
 
   useEffect(() => {
-    function loadAd() {
-      setStatus('loading');
-      const ad = RewardedAd.createForAdRequest(UNIT_ID, {
-        requestNonPersonalizedAdsOnly: false,
-      });
-      adRef.current = ad;
+    if (!ADS_CONFIGURED) return;
 
-      ad.addAdEventListener(RewardedAdEventType.LOADED, () => {
-        setStatus('ready');
-      });
+    RewardedAd.addAdLoadedEventListener(() => setStatus('ready'));
 
-      ad.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
-        updateCoinsRef.current(BONUS_COINS);
-        setStatus('success');
-        // Recharge une nouvelle pub après 3s pour permettre une prochaine vue
-        setTimeout(loadAd, 3000);
-      });
+    RewardedAd.addAdReceivedRewardEventListener(() => {
+      updateCoinsRef.current(BONUS_COINS);
+      setStatus('success');
+    });
 
-      ad.addAdEventListener(AdEventType.ERROR, () => {
-        // Pas de pub dispo → on cache silencieusement le bouton
-      });
+    // Pas de pub dispo → on garde le bouton caché (status reste 'loading')
+    RewardedAd.addAdLoadFailedEventListener(() => {});
 
-      ad.load();
-    }
+    // Quand la pub se ferme, on en précharge une nouvelle pour la prochaine fois
+    RewardedAd.addAdHiddenEventListener(() => {
+      setTimeout(() => RewardedAd.loadAd(UNIT_ID), 3000);
+    });
 
-    loadAd();
+    RewardedAd.loadAd(UNIT_ID);
+
+    return () => {
+      RewardedAd.removeAdLoadedEventListener();
+      RewardedAd.removeAdReceivedRewardEventListener();
+      RewardedAd.removeAdLoadFailedEventListener();
+      RewardedAd.removeAdHiddenEventListener();
+    };
   }, []);
 
   // Bouton invisible si la pub n'est pas encore chargée
@@ -66,7 +62,7 @@ export default function RewardedAdButton() {
   return (
     <TouchableOpacity
       style={styles.btn}
-      onPress={() => adRef.current?.show()}
+      onPress={() => RewardedAd.showAd(UNIT_ID)}
       activeOpacity={0.8}
     >
       <Text style={styles.btnIcon}>🎬</Text>

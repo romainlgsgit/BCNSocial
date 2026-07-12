@@ -1,25 +1,26 @@
 import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
+import { AdView, AdFormat } from 'react-native-applovin-max';
+import { AD_UNITS, ADS_CONFIGURED } from '../config/ads';
+import { usePremium } from '../context/PremiumContext';
 
-// ← Remplacer par ton vrai ID AdMob iOS en production
-const UNIT_ID = __DEV__
-  ? TestIds.BANNER
-  : 'ca-app-pub-1040134367659445/6646827683';
-
-// MEDIUM_RECTANGLE = 300×250 → meilleur CPM pour le feed
+// MREC = 300×250 → meilleur CPM pour le feed
 type State = 'placeholder' | 'loaded' | 'failed';
 
 export default function FeedAdCard() {
   const [state, setState] = useState<State>('placeholder');
+  const { isPremium } = usePremium();
   const opacity = useRef(new Animated.Value(0)).current;
+
+  if (isPremium) return null;
 
   const handleLoaded = () => {
     setState('loaded');
     Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
   };
 
-  if (state === 'failed') return null;
+  // Rien à afficher tant que les clés AppLovin ne sont pas configurées, ou si l'ad a échoué
+  if (!ADS_CONFIGURED || state === 'failed') return null;
 
   return (
     <View style={styles.card}>
@@ -37,7 +38,7 @@ export default function FeedAdCard() {
         </View>
       )}
 
-      {/* BannerAd : toujours dans le DOM pour se charger, invisible jusqu'à loaded */}
+      {/* AdView MREC : toujours dans le DOM pour se charger, invisible jusqu'à loaded */}
       <Animated.View
         style={[
           styles.adWrap,
@@ -45,12 +46,12 @@ export default function FeedAdCard() {
           { opacity },
         ]}
       >
-        <BannerAd
-          unitId={UNIT_ID}
-          size={BannerAdSize.MEDIUM_RECTANGLE}
-          requestOptions={{ requestNonPersonalizedAdsOnly: false }}
+        <AdView
+          adUnitId={AD_UNITS.mrec}
+          adFormat={AdFormat.MREC}
+          style={styles.mrec}
           onAdLoaded={handleLoaded}
-          onAdFailedToLoad={() => setState('failed')}
+          onAdLoadFailed={() => setState('failed')}
         />
       </Animated.View>
     </View>
@@ -113,5 +114,9 @@ const styles = StyleSheet.create({
   adHidden: {
     position: 'absolute',
     opacity: 0,
+  },
+  mrec: {
+    width: 300,
+    height: 250,
   },
 });

@@ -127,7 +127,7 @@ export default function PlayersScreen() {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>⭐ Notes joueurs</Text>
-        <Text style={styles.headerSub}>Moyenne saison 2025/26</Text>
+        <Text style={styles.headerSub}>Moyenne saison 2026/27</Text>
       </View>
 
       {/* Position filter */}

@@ -10,17 +10,23 @@ import {
   ActivityIndicator,
   Animated,
   ImageBackground,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, addDoc, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Post, PostTag, Team } from '../types';
 import { useFeaturedMatch } from '../context/MatchContext';
 import { useAuth } from '../context/AuthContext';
+import { usePremium } from '../context/PremiumContext';
+import { useBlock } from '../context/BlockContext';
 import PostCard from '../components/PostCard';
 import CreatePostModal from '../components/CreatePostModal';
+import { sendPostNotifications, sendMentionNotifications } from '../utils/notifications';
 import FeedAdCard from '../components/FeedAdCard';
 
 // Pub toutes les N publications
@@ -46,8 +52,10 @@ function countdown(dateStr: string): string {
   if (diff <= 0) return 'En cours';
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
   if (days > 0) return `J-${days}`;
-  return `Dans ${hours}h`;
+  if (hours > 0) return `${hours}h${String(minutes).padStart(2, '0')}`;
+  return `${minutes}min`;
 }
 
 function isImageUri(logo?: string) {
@@ -76,6 +84,87 @@ function TeamBadge({ team }: { team: Team }) {
   );
 }
 
+type CompetitionTheme = {
+  gradient: readonly [string, string, ...string[]];
+  accent: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
+function getCompetitionTheme(competition: string): CompetitionTheme {
+  const c = (competition || '').toLowerCase();
+  if (c.includes('champions') || c.includes('uefa')) {
+    return {
+      gradient: ['#0A1E50', '#040B2E', '#0A1E50'] as const,
+      accent: '#FFFFFF',
+      label: 'UEFA Champions League',
+      icon: 'star',
+    };
+  }
+  if (c.includes('copa del rey')) {
+    return {
+      gradient: ['#8B0000', '#5C0508', '#3A0204'] as const,
+      accent: '#F1BF00',
+      label: 'Copa del Rey',
+      icon: 'trophy',
+    };
+  }
+  if (c.includes('supercopa')) {
+    return {
+      gradient: ['#AA151B', '#C9981A', '#AA151B'] as const,
+      accent: '#FFFFFF',
+      label: 'Supercopa',
+      icon: 'ribbon',
+    };
+  }
+  if (c.includes('club world') || c.includes('mondial')) {
+    return {
+      gradient: ['#1A1A1A', '#3A2A00', '#1A1A1A'] as const,
+      accent: '#FFD700',
+      label: 'FIFA Club World Cup',
+      icon: 'earth',
+    };
+  }
+  if (c.includes('primera') || c.includes('liga') || c.includes('laliga')) {
+    return {
+      gradient: ['#EE2A35', '#A50044', '#5C0024'] as const,
+      accent: '#FFFFFF',
+      label: 'LaLiga',
+      icon: 'football',
+    };
+  }
+  // Match amical / défaut Barça bleu
+  return {
+    gradient: ['#00336B', '#004D98', '#003070'] as const,
+    accent: '#FFFFFF',
+    label: competition || 'Match amical',
+    icon: 'football',
+  };
+}
+
+// Regroupe les buts par buteur (en gardant l'ordre chronologique d'apparition)
+function groupGoalsByScorer<T extends { scorer: string }>(items: T[]): { scorer: string; items: T[] }[] {
+  const order: string[] = [];
+  const map = new Map<string, T[]>();
+  for (const it of items) {
+    if (!map.has(it.scorer)) { map.set(it.scorer, []); order.push(it.scorer); }
+    map.get(it.scorer)!.push(it);
+  }
+  return order.map(s => ({ scorer: s, items: map.get(s)! }));
+}
+
+// Formate les minutes d'un même buteur : "28', 67'" avec (p) / (csc) accolés à la minute concernée
+function formatGoalMinutes(items: { minute: string; isPenalty?: boolean; isOwnGoal?: boolean }[]): string {
+  return items
+    .map(g => {
+      let s = g.minute;
+      if (g.isPenalty) s += ' (p)';
+      if (g.isOwnGoal) s += ' (csc)';
+      return s;
+    })
+    .join(', ');
+}
+
 function MatchBanner() {
   const { featuredMatch: match, liveData, liveMinute, isLoadingMatches } = useFeaturedMatch();
 
@@ -90,27 +179,39 @@ function MatchBanner() {
     );
   }
 
-  const isLive = liveData?.status === 'IN_PLAY' || liveData?.status === 'PAUSED';
-  const isFinished = liveData?.status === 'FINISHED';
+  // Sans données live (ex. dernier match de la saison récupéré via l'API), on se rabat
+  // sur le statut/score de l'objet match lui-même.
+  const isLive = liveData
+    ? liveData.status === 'IN_PLAY' || liveData.status === 'PAUSED'
+    : match.status === 'live';
+  const isFinished = liveData
+    ? liveData.status === 'FINISHED'
+    : match.status === 'finished';
   const showScore = isLive || isFinished;
+  const homeScore = liveData?.homeScore ?? match.homeScore ?? 0;
+  const awayScore = liveData?.awayScore ?? match.awayScore ?? 0;
+  const theme = getCompetitionTheme(match.competition);
+  const goals = liveData?.goals ?? [];
 
   return (
     <LinearGradient
-      colors={['#00336B', '#004D98', '#003070']}
+      colors={theme.gradient as any}
       style={styles.matchCard}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
       <View style={styles.matchTopRow}>
-        <View style={styles.competitionBadge}>
-          <Text style={styles.competitionText}>{match.competition}</Text>
+        <View style={[styles.competitionBadge, { backgroundColor: theme.accent + '22', borderWidth: 1, borderColor: theme.accent + '44' }]}>
+          <Ionicons name={theme.icon} size={11} color={theme.accent} />
+          <Text style={[styles.competitionText, { color: theme.accent }]}>{theme.label}</Text>
         </View>
         {isLive ? (
           <View style={styles.liveBadge}>
+            <View style={styles.liveDot} />
             <Text style={styles.liveText}>
               {liveData?.status === 'PAUSED'
                 ? 'MI-TEMPS'
-                : liveMinute != null ? `${liveMinute}' LIVE` : 'EN DIRECT'}
+                : liveMinute != null ? `${liveMinute}'` : 'LIVE'}
             </Text>
           </View>
         ) : isFinished ? (
@@ -130,7 +231,7 @@ function MatchBanner() {
           {showScore ? (
             <>
               <Text style={[styles.scoreText, isLive && { color: '#FFD700' }]}>
-                {liveData?.homeScore ?? 0} - {liveData?.awayScore ?? 0}
+                {homeScore} - {awayScore}
               </Text>
               {!isFinished && (
                 <Text style={styles.vsLabel}>
@@ -150,25 +251,81 @@ function MatchBanner() {
         </View>
         <TeamBadge team={match.awayTeam} />
       </View>
+
+      {goals.length > 0 && (() => {
+        const homeGroups = groupGoalsByScorer(goals.filter(g => g.team === 'home'));
+        const awayGroups = groupGoalsByScorer(goals.filter(g => g.team === 'away'));
+        return (
+          <View style={styles.goalsBlock}>
+            <View style={styles.goalsDivider} />
+            <View style={styles.goalsColumns}>
+              <View style={styles.goalsCol}>
+                {homeGroups.map((grp, i) => (
+                  <View key={`h-${i}`} style={styles.goalLineRow}>
+                    <View style={styles.goalIconsRow}>
+                      {grp.items.map((_, idx) => (
+                        <Ionicons key={idx} name="football" size={10} color="rgba(255,255,255,0.85)" />
+                      ))}
+                    </View>
+                    <Text style={styles.goalLineText} numberOfLines={1}>
+                      {grp.scorer} <Text style={styles.goalMinuteInline}>{formatGoalMinutes(grp.items)}</Text>
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              <View style={[styles.goalsCol, styles.goalsColRight]}>
+                {awayGroups.map((grp, i) => (
+                  <View key={`a-${i}`} style={[styles.goalLineRow, styles.goalLineRowRight]}>
+                    <Text style={[styles.goalLineText, { textAlign: 'right' }]} numberOfLines={1}>
+                      {grp.scorer} <Text style={styles.goalMinuteInline}>{formatGoalMinutes(grp.items)}</Text>
+                    </Text>
+                    <View style={styles.goalIconsRow}>
+                      {grp.items.map((_, idx) => (
+                        <Ionicons key={idx} name="football" size={10} color="rgba(255,255,255,0.85)" />
+                      ))}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        );
+      })()}
     </LinearGradient>
   );
 }
 
-function CreatePostBar({ onPress, userAvatar, userPhoto }: { onPress: () => void; userAvatar: string; userPhoto?: string }) {
+function CreatePostBar({ onPress, userAvatar, userPhoto, dailyCount, dailyLimit }: {
+  onPress: () => void;
+  userAvatar: string;
+  userPhoto?: string;
+  dailyCount?: number;
+  dailyLimit?: number | null;
+}) {
+  const limitReached = dailyLimit != null && (dailyCount ?? 0) >= dailyLimit;
   return (
-    <TouchableOpacity style={styles.createBar} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity style={[styles.createBar, limitReached && styles.createBarLocked]} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.createAvatar}>
         {userPhoto ? (
-          <Image
-            source={{ uri: `data:image/jpeg;base64,${userPhoto}` }}
-            style={styles.createAvatarImage}
-          />
+          <Image source={{ uri: `data:image/jpeg;base64,${userPhoto}` }} style={styles.createAvatarImage} />
         ) : (
           <Text style={styles.createAvatarEmoji}>{userAvatar}</Text>
         )}
       </View>
-      <Text style={styles.createText}>Quoi de neuf sur le Barça ?</Text>
-      <View style={styles.createDot} />
+      <View style={{ flex: 1, justifyContent: 'center' }}>
+        <Text style={styles.createText}>
+          {limitReached ? 'Limite atteinte · Passe Premium ✨' : 'Quoi de neuf sur le Barça ?'}
+        </Text>
+        {dailyLimit != null && (
+          <Text style={styles.createCounter}>
+            {dailyCount}/{dailyLimit} posts aujourd'hui
+          </Text>
+        )}
+      </View>
+      {limitReached
+        ? <Ionicons name="diamond" size={16} color={Colors.gold} />
+        : <View style={styles.createDot} />
+      }
     </TouchableOpacity>
   );
 }
@@ -211,24 +368,63 @@ function Divider() {
   );
 }
 
+type Filter = 'tous' | PostTag;
+
+const FILTERS: { key: Filter; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: 'tous',    label: 'Tous',     icon: 'apps' },
+  { key: 'match',   label: 'Matchs',   icon: 'football' },
+  { key: 'opinion', label: 'Opinions', icon: 'chatbubble' },
+  { key: 'news',    label: 'News',     icon: 'newspaper' },
+];
+
+function getLocalDateString(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
+  const { isPremium, canPost, FREE_DAILY_POST_LIMIT, openPremiumScreen } = usePremium();
+  const { isAnyBlock } = useBlock();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<Filter>('tous');
+
+  const [todayPostCount, setTodayPostCount] = useState(0);
+
+  useEffect(() => {
+    if (!user) { setTodayPostCount(0); return; }
+    const key = `@daily_posts_${user.id}`;
+    AsyncStorage.getItem(key).then(val => {
+      if (!val) return;
+      const { date, count } = JSON.parse(val);
+      if (date === getLocalDateString()) setTodayPostCount(count);
+      else AsyncStorage.removeItem(key);
+    });
+  }, [user?.id]);
+
+  const filteredPosts = useMemo(() => {
+    const visible = posts.filter(p => !isAnyBlock(p.userId));
+    if (activeFilter === 'tous') return visible;
+    return visible.filter(p => p.tag === activeFilter);
+  }, [posts, activeFilter, isAnyBlock]);
 
   // Intercale une pub toutes les AD_FREQUENCY publications
   const feedItems = useMemo<FeedItem[]>(() => {
     const result: FeedItem[] = [];
-    posts.forEach((post, i) => {
+    filteredPosts.forEach((post, i) => {
       result.push(post);
       if ((i + 1) % AD_FREQUENCY === 0) {
         result.push({ _ad: true, id: `ad-${i}` });
       }
     });
     return result;
-  }, [posts]);
+  }, [filteredPosts]);
 
   // Écoute les posts Firestore en temps réel
   useEffect(() => {
@@ -241,9 +437,27 @@ export default function HomeScreen() {
     return () => unsub();
   }, []);
 
-  const handleNewPost = useCallback(async (content: string, tag?: PostTag) => {
-    if (!user) return;
+  const handleOpenPost = useCallback(() => {
+    if (!canPost(todayPostCount)) {
+      Alert.alert(
+        'Limite atteinte',
+        `Tu as atteint ta limite de ${FREE_DAILY_POST_LIMIT} posts aujourd'hui. Passe Premium pour poster sans limite !`,
+        [
+          { text: 'Passer Premium', onPress: openPremiumScreen },
+          { text: 'OK', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+    setShowModal(true);
+  }, [canPost, todayPostCount, openPremiumScreen, FREE_DAILY_POST_LIMIT]);
+
+  const handleNewPost = useCallback(async (content: string, tag?: PostTag, imageBase64?: string, mentions?: { id: string; username: string }[]) => {
+    if (!user || !canPost(todayPostCount)) return;
     setShowModal(false);
+    const newCount = todayPostCount + 1;
+    setTodayPostCount(newCount);
+    AsyncStorage.setItem(`@daily_posts_${user.id}`, JSON.stringify({ date: getLocalDateString(), count: newCount }));
     await addDoc(collection(db, 'posts'), {
       userId: user.id,
       username: user.username,
@@ -251,24 +465,52 @@ export default function HomeScreen() {
       avatarPhoto: user.photoBase64 ?? null,
       verified: user.verified ?? false,
       content,
+      imageBase64: imageBase64 ?? null,
+      mentionedUsers: mentions?.map(m => ({ id: m.id, username: m.username })) ?? [],
       likedBy: [],
       comments: 0,
       createdAt: new Date().toISOString(),
       tag: tag ?? null,
     });
-  }, [user]);
+
+    sendPostNotifications(user.id, user.username, content, !!imageBase64);
+    if (mentions?.length) sendMentionNotifications(mentions, user.username, content);
+  }, [user, todayPostCount, canPost]);
 
   const ListHeader = useCallback(() => (
     <View style={styles.listHeader}>
       <MatchBanner />
       {isAuthenticated && (
         <CreatePostBar
-          onPress={() => setShowModal(true)}
+          onPress={handleOpenPost}
           userAvatar={user?.avatar ?? '🦁'}
           userPhoto={user?.photoBase64}
+          dailyCount={todayPostCount}
+          dailyLimit={isPremium ? null : FREE_DAILY_POST_LIMIT}
         />
       )}
-      <Divider />
+
+      {/* Filtres */}
+      <View style={styles.filtersRow}>
+        {FILTERS.map(f => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.filterChip, activeFilter === f.key && styles.filterChipActive]}
+            onPress={() => setActiveFilter(f.key)}
+            activeOpacity={0.75}
+          >
+            <Ionicons
+              name={f.icon}
+              size={13}
+              color={activeFilter === f.key ? Colors.primary : Colors.textMuted}
+            />
+            <Text style={[styles.filterLabel, activeFilter === f.key && styles.filterLabelActive]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       {loadingPosts && (
         <>
           <SkeletonCard />
@@ -277,7 +519,7 @@ export default function HomeScreen() {
         </>
       )}
     </View>
-  ), [isAuthenticated, user, loadingPosts]);
+  ), [isAuthenticated, user, loadingPosts, activeFilter, handleOpenPost, todayPostCount, isPremium, FREE_DAILY_POST_LIMIT]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -292,7 +534,7 @@ export default function HomeScreen() {
             : <PostCard post={item as Post} />
         }
         ListHeaderComponent={ListHeader}
-        extraData={user?.photoBase64}
+        extraData={[user?.photoBase64, activeFilter]}
         showsVerticalScrollIndicator={false}
         ListFooterComponent={<View style={{ height: 60 }} />}
         contentContainerStyle={styles.listContent}
@@ -311,6 +553,7 @@ export default function HomeScreen() {
           visible={showModal}
           onClose={() => setShowModal(false)}
           onSubmit={handleNewPost}
+          isPremium={isPremium}
         />
       )}
     </View>
@@ -344,6 +587,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   competitionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: 'rgba(255,255,255,0.15)',
     paddingHorizontal: 10,
     paddingVertical: 4,
@@ -369,10 +615,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: '#FF3B3B',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 20,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
   },
   liveText: {
     color: '#fff',
@@ -469,6 +724,57 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  // ─── Buteurs ────────────────────────────────────────────
+  goalsBlock: {
+    marginTop: 8,
+  },
+  goalsDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginBottom: 6,
+  },
+  goalsColumns: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  goalsCol: {
+    flex: 1,
+    gap: 3,
+  },
+  goalsColRight: {
+    alignItems: 'flex-end',
+  },
+  goalLineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+  },
+  goalLineRowRight: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  goalIconsRow: {
+    flexDirection: 'row',
+    gap: 1,
+  },
+  goalLineText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  goalMinuteInline: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  goalTag: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+
   // ─── Skeleton ─────────────────────────────────────────
   skeletonCard: {
     backgroundColor: '#151515',
@@ -530,7 +836,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
   },
   createText: {
-    flex: 1,
     color: Colors.textMuted,
     fontSize: 14,
   },
@@ -539,6 +844,48 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: Colors.primary,
+  },
+  createBarLocked: {
+    borderColor: Colors.gold + '40',
+    backgroundColor: '#1a1500',
+  },
+  createCounter: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginTop: 2,
+  },
+
+  // ─── Filtres ──────────────────────────────────────────
+  filtersRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    paddingTop: 4,
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#151515',
+    borderWidth: 1,
+    borderColor: '#252525',
+  },
+  filterChipActive: {
+    backgroundColor: Colors.primary + '22',
+    borderColor: Colors.primary,
+  },
+  filterLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+  filterLabelActive: {
+    color: Colors.primary,
+    fontWeight: '700',
   },
 
   // ─── Divider ─────────────────────────────────────────

@@ -73,5 +73,19 @@ service cloud.firestore {
       allow delete: if request.auth != null && request.auth.uid == resource.data.followerId;
     }
 
+    // Abonnements notifications : lecture/écriture par l'abonné, lecture par la cible (pour envoyer les notifs)
+    match /notifSubscriptions/{subId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.subscriberId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.subscriberId;
+    }
+
+    // Blocages : chacun peut lire/créer/supprimer ses propres blocages
+    match /blocks/{blockId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.blockerId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.blockerId;
+    }
+
   }
 }
