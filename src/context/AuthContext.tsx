@@ -2,14 +2,27 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut,
   onAuthStateChanged,
   updateProfile,
   deleteUser,
 } from 'firebase/auth';
-import { doc, setDoc, updateDoc, onSnapshot, collection, query, where, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, where, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import { User } from '../types';
+
+// Résout un identifiant de connexion (email ou pseudo) en email Firebase Auth.
+// Le mapping pseudo → email vit dans /usernames (lecture publique, cf firestore.rules)
+// car /users nécessite d'être authentifié — impossible avant la connexion.
+async function resolveEmail(identifier: string): Promise<string> {
+  const trimmed = identifier.trim();
+  if (trimmed.includes('@')) return trimmed;
+  const snap = await getDoc(doc(db, 'usernames', trimmed));
+  const email = snap.data()?.email;
+  if (!email) throw new Error('Aucun compte avec ce pseudo.');
+  return email;
+}
 
 const ADMIN_EMAIL = 'legrosromain27@gmail.com';
 
@@ -18,8 +31,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (identifier: string, password: string) => Promise<boolean>;
   register: (username: string, email: string, password: string) => Promise<boolean>;
+  resetPassword: (identifier: string) => Promise<boolean>;
   logout: () => void;
   deleteAccount: () => Promise<void>;
   changeUsername: (newUsername: string) => Promise<void>;
@@ -90,9 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (identifier: string, password: string): Promise<boolean> => {
     setIsLoading(true);
     try {
+      const email = await resolveEmail(identifier);
       await signInWithEmailAndPassword(auth, email, password);
       return true;
     } catch (e) {
@@ -100,6 +115,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return false;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const resetPassword = async (identifier: string): Promise<boolean> => {
+    try {
+      const email = await resolveEmail(identifier);
+      await sendPasswordResetEmail(auth, email);
+      return true;
+    } catch (e) {
+      console.error('Reset password error:', e);
+      return false;
     }
   };
 
@@ -112,6 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const cred = await createUserWithEmailAndPassword(auth, email, password);
       await updateProfile(cred.user, { displayName: username });
+      // Réserve le pseudo pour la connexion par pseudo (best-effort : si déjà pris,
+      // le compte est quand même créé, juste utilisable seulement via email).
+      setDoc(doc(db, 'usernames', username), { email, uid: cred.user.uid }).catch(() => {});
       // Met à jour l'objet user local avec le username
       setUser((prev) =>
         prev ? { ...prev, username, coins: 200 } : prev
@@ -205,6 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         register,
+        resetPassword,
         logout,
         deleteAccount,
         changeUsername,

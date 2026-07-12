@@ -12,6 +12,7 @@ import {
   Platform,
   Alert,
   Image,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -37,6 +38,99 @@ import { usePremium } from '../context/PremiumContext';
 type Tab = 'login' | 'register';
 type ProfileTabType = 'publications' | 'pronos' | 'notes';
 
+function ForgotPasswordModal({ visible, initialIdentifier, onClose }: { visible: boolean; initialIdentifier: string; onClose: () => void }) {
+  const { resetPassword } = useAuth();
+  const [identifier, setIdentifier] = useState(initialIdentifier);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (visible) {
+      setIdentifier(initialIdentifier);
+      setSent(false);
+      setError('');
+    }
+  }, [visible, initialIdentifier]);
+
+  const handleSend = async () => {
+    if (!identifier.trim()) {
+      setError('Renseigne ton email ou ton pseudo.');
+      return;
+    }
+    setError('');
+    setSending(true);
+    const success = await resetPassword(identifier);
+    setSending(false);
+    if (success) setSent(true);
+    else setError('Impossible d\'envoyer le lien. Vérifie ton pseudo/email.');
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.forgotOverlay}>
+        <View style={styles.forgotCard}>
+          <View style={styles.forgotHeader}>
+            <Text style={styles.forgotTitle}>Mot de passe oublié</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Ionicons name="close" size={24} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+
+          {sent ? (
+            <View style={styles.forgotSentBox}>
+              <Ionicons name="checkmark-circle" size={40} color={Colors.success} />
+              <Text style={styles.forgotSentText}>
+                Si un compte existe pour « {identifier.trim()} », un email de réinitialisation vient d'être envoyé.
+              </Text>
+              <TouchableOpacity style={styles.submitBtn} onPress={onClose} activeOpacity={0.85}>
+                <Text style={styles.submitBtnText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.forgotSub}>
+                Entre ton email ou ton pseudo, on t'envoie un lien pour réinitialiser ton mot de passe.
+              </Text>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email ou pseudo</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="email@exemple.com ou ton_pseudo"
+                  placeholderTextColor={Colors.textMuted}
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  autoCapitalize="none"
+                />
+              </View>
+
+              {error !== '' && (
+                <View style={styles.errorBox}>
+                  <Ionicons name="warning-outline" size={15} color={Colors.error} />
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.submitBtn}
+                onPress={handleSend}
+                disabled={sending}
+                activeOpacity={0.85}
+              >
+                {sending ? (
+                  <ActivityIndicator color={Colors.text} />
+                ) : (
+                  <Text style={styles.submitBtnText}>Envoyer le lien</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function AuthForm() {
   const { login, register, isLoading } = useAuth();
   const [tab, setTab] = useState<Tab>('login');
@@ -44,6 +138,7 @@ function AuthForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [forgotVisible, setForgotVisible] = useState(false);
 
   const handleSubmit = async () => {
     setError('');
@@ -124,14 +219,14 @@ function AuthForm() {
           )}
 
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email</Text>
+            <Text style={styles.inputLabel}>{tab === 'login' ? 'Email ou pseudo' : 'Email'}</Text>
             <TextInput
               style={styles.input}
-              placeholder="email@exemple.com"
+              placeholder={tab === 'login' ? 'email ou pseudo' : 'email@exemple.com'}
               placeholderTextColor={Colors.textMuted}
               value={email}
               onChangeText={setEmail}
-              keyboardType="email-address"
+              keyboardType={tab === 'login' ? 'default' : 'email-address'}
               autoCapitalize="none"
             />
           </View>
@@ -147,6 +242,12 @@ function AuthForm() {
               secureTextEntry
             />
           </View>
+
+          {tab === 'login' && (
+            <TouchableOpacity onPress={() => setForgotVisible(true)} style={styles.forgotLink}>
+              <Text style={styles.forgotLinkText}>Mot de passe oublié ?</Text>
+            </TouchableOpacity>
+          )}
 
           {error !== '' && (
             <View style={styles.errorBox}>
@@ -171,6 +272,12 @@ function AuthForm() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <ForgotPasswordModal
+        visible={forgotVisible}
+        initialIdentifier={email}
+        onClose={() => setForgotVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -719,6 +826,52 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  forgotLink: {
+    alignSelf: 'flex-end',
+  },
+  forgotLinkText: {
+    color: Colors.primary,
+    fontSize: FontSize.sm,
+    fontWeight: '600',
+  },
+  forgotOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: Spacing.md,
+  },
+  forgotCard: {
+    backgroundColor: Colors.background,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: Spacing.md,
+  },
+  forgotHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  forgotTitle: {
+    fontSize: FontSize.lg,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  forgotSub: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+  },
+  forgotSentBox: {
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  forgotSentText: {
+    fontSize: FontSize.sm,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
   // Profile
   profileHeader: {

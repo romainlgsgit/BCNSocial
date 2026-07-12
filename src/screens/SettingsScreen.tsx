@@ -112,12 +112,28 @@ export default function SettingsScreen() {
         {
           text: 'Supprimer', style: 'destructive',
           onPress: async () => {
-            try { await deleteAccount(); }
+            try {
+              await deleteAccount();
+              navigation.goBack();
+            }
             catch { Alert.alert('Erreur', 'Reconnecte-toi et réessaie.'); }
           },
         },
       ]
     );
+  };
+
+  const handleLogout = () => {
+    Alert.alert('Déconnexion', 'Tu veux vraiment te déconnecter ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Déconnecter', style: 'destructive',
+        onPress: async () => {
+          await logout();
+          navigation.goBack();
+        },
+      },
+    ]);
   };
 
   return (
@@ -277,10 +293,7 @@ export default function SettingsScreen() {
             iconColor="#EF4444"
             label="Se déconnecter"
             danger
-            onPress={() => Alert.alert('Déconnexion', 'Tu veux vraiment te déconnecter ?', [
-              { text: 'Annuler', style: 'cancel' },
-              { text: 'Déconnecter', style: 'destructive', onPress: logout },
-            ])}
+            onPress={handleLogout}
           />
           <View style={styles.separator} />
           <SettingRow

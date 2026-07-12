@@ -19,6 +19,15 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // Mapping pseudo → email pour la connexion/reset par pseudo (lecture publique
+    // nécessaire : le client n'est pas encore authentifié à ce stade). Immuable une
+    // fois créé pour empêcher le vol de pseudo.
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
     // Config app (cotes, etc.)
     match /config/{docId} {
       allow read: if true;
