@@ -12,7 +12,7 @@
       "backgroundColor": "#A50044"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.romainlgs.barca-app",
       "buildNumber": "1",
       "privacyManifests": {
