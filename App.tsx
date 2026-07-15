@@ -27,10 +27,16 @@ function AppWithProviders() {
   const { user } = useAuth();
 
   useEffect(() => {
-    requestTrackingPermissionsAsync().then(() => {
-      if (!ADS_CONFIGURED) return;
-      AppLovinMAX.initialize(APPLOVIN_SDK_KEY).catch(() => {});
-    });
+    // iOS ignore silencieusement la demande ATT si elle arrive avant que la fenêtre
+    // de l'app soit pleinement affichée (aucun popup, aucune erreur) — un léger délai
+    // laisse le temps au launch de se terminer avant de la déclencher.
+    const timer = setTimeout(() => {
+      requestTrackingPermissionsAsync().then(() => {
+        if (!ADS_CONFIGURED) return;
+        AppLovinMAX.initialize(APPLOVIN_SDK_KEY).catch(() => {});
+      });
+    }, 1000);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
