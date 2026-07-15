@@ -17,6 +17,7 @@ import { BlockProvider } from './src/context/BlockContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import PremiumScreen from './src/screens/PremiumScreen';
 import { registerPushToken } from './src/utils/notifications';
+import { resolveAttGate } from './src/utils/attGate';
 import { APPLOVIN_SDK_KEY, ADS_CONFIGURED } from './src/config/ads';
 
 function GlobalModals() {
@@ -39,6 +40,7 @@ function AppWithProviders() {
       timer = setTimeout(() => {
         if (cancelled) return;
         requestTrackingPermissionsAsync().then(() => {
+          resolveAttGate();
           if (!ADS_CONFIGURED) return;
           AppLovinMAX.initialize(APPLOVIN_SDK_KEY).catch(() => {});
         });

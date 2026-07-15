@@ -10,6 +10,7 @@ import {
   sendGoalNotification,
   sendMatchEndNotification,
 } from '../services/NotificationService';
+import { attResolved } from '../utils/attGate';
 
 // ─── Sources ──────────────────────────────────────────────────────────────────
 // football-data.org : calendrier, prochains matchs, résultats (gratuit 10 req/min)
@@ -436,7 +437,10 @@ export function MatchProvider({ children }: { children: ReactNode }) {
   const apiMatchIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    requestNotificationPermission().then(granted => {
+    // Attend que la demande ATT soit résolue : iOS n'affiche qu'une seule demande
+    // de permission système à la fois, donc les demander en parallèle au lancement
+    // fait ignorer silencieusement l'une des deux.
+    attResolved.then(() => requestNotificationPermission()).then(granted => {
       notifReadyRef.current = granted;
     });
   }, []);
