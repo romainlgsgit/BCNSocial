@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { AppState } from 'react-native';
 import AppLovinMAX from 'react-native-applovin-max';
 import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 import { NavigationContainer } from '@react-navigation/native';
@@ -27,16 +28,39 @@ function AppWithProviders() {
   const { user } = useAuth();
 
   useEffect(() => {
-    // iOS ignore silencieusement la demande ATT si elle arrive avant que la fenêtre
-    // de l'app soit pleinement affichée (aucun popup, aucune erreur) — un léger délai
-    // laisse le temps au launch de se terminer avant de la déclencher.
-    const timer = setTimeout(() => {
-      requestTrackingPermissionsAsync().then(() => {
-        if (!ADS_CONFIGURED) return;
-        AppLovinMAX.initialize(APPLOVIN_SDK_KEY).catch(() => {});
+    // iOS ignore silencieusement la demande ATT (aucun popup, aucune erreur) si elle
+    // arrive avant que la fenêtre de l'app soit key/active. On attend explicitement
+    // l'état "active" de l'app, puis une marge de sécurité, avant de la déclencher.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let sub: ReturnType<typeof AppState.addEventListener> | null = null;
+
+    const triggerRequest = () => {
+      timer = setTimeout(() => {
+        if (cancelled) return;
+        requestTrackingPermissionsAsync().then(() => {
+          if (!ADS_CONFIGURED) return;
+          AppLovinMAX.initialize(APPLOVIN_SDK_KEY).catch(() => {});
+        });
+      }, 700);
+    };
+
+    if (AppState.currentState === 'active') {
+      triggerRequest();
+    } else {
+      sub = AppState.addEventListener('change', (state) => {
+        if (state === 'active') {
+          sub?.remove();
+          triggerRequest();
+        }
       });
-    }, 1000);
-    return () => clearTimeout(timer);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      sub?.remove();
+    };
   }, []);
 
   useEffect(() => {
