@@ -20,8 +20,6 @@ const FollowContext = createContext<FollowContextType | null>(null);
 export function FollowProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [followingIds, setFollowingIds] = useState<string[]>([]);
-  const [myFollowersCount, setMyFollowersCount] = useState(0);
-  const [myFollowingCount, setMyFollowingCount] = useState(0);
 
   // Qui je suis (temps réel)
   useEffect(() => {
@@ -32,17 +30,10 @@ export function FollowProvider({ children }: { children: React.ReactNode }) {
     });
   }, [user?.id]);
 
-  // Mes compteurs depuis mon doc Firestore (temps réel)
-  useEffect(() => {
-    if (!user) { setMyFollowersCount(0); setMyFollowingCount(0); return; }
-    return onSnapshot(doc(db, 'users', user.id), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setMyFollowersCount(data.followersCount ?? 0);
-        setMyFollowingCount(data.followingCount ?? 0);
-      }
-    });
-  }, [user?.id]);
+  // Compteurs repris du doc utilisateur déjà écouté par AuthContext — un second
+  // onSnapshot sur `users/{uid}` doublait la facture pour exactement la même donnée.
+  const myFollowersCount = user?.followersCount ?? 0;
+  const myFollowingCount = user?.followingCount ?? 0;
 
   const isFollowing = (userId: string) => followingIds.includes(userId);
 

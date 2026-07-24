@@ -8,9 +8,7 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
-import { getPlayerPhoto } from '../utils/playerPhotos';
 import { usePlayers } from '../context/PlayersContext';
-import { useLocalPlayerPhotos } from '../utils/localPlayerPhotos';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { MATCHES } from '../data/mockData';
@@ -63,8 +61,9 @@ const rbStyles = StyleSheet.create({
 // ─── SeasonPlayerCard ─────────────────────────────────────────────────────────
 
 function PlayerAvatar({ player }: { player: Player }) {
-  const { map: localPhotos } = useLocalPlayerPhotos();
-  const photoUrl = localPhotos[player.id] || player.photoUrl || getPlayerPhoto(player.name);
+  const photoUrl = player.photoBase64
+    ? `data:image/jpeg;base64,${player.photoBase64}`
+    : player.photoUrl;
   if (photoUrl) {
     return (
       <Image

@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeAuth, getAuth, getReactNativePersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getDatabase } from 'firebase/database';
 import { getStorage } from 'firebase/storage';
 import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -11,6 +12,8 @@ const firebaseConfig = {
   storageBucket: 'barca-app-b0795.firebasestorage.app',
   messagingSenderId: '1000501829244',
   appId: '1:1000501829244:web:158a35de04d20c4d5a33f9',
+  // Realtime Database (Europe) — dédiée au mini-jeu, quota SÉPARÉ de Firestore.
+  databaseURL: 'https://barca-app-b0795-default-rtdb.europe-west1.firebasedatabase.app',
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -25,6 +28,7 @@ try {
 }
 
 export const db = getFirestore(app);
+export const rtdb = getDatabase(app); // mini-jeu uniquement (isolé de Firestore)
 export const storage = getStorage(app);
 export { auth };
 export default app;

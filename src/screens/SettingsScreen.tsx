@@ -10,6 +10,8 @@ import {
   Image,
   ActivityIndicator,
   TextInput,
+  Platform,
+  Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -59,13 +61,19 @@ function SettingRow({
 export default function SettingsScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const { user, logout, deleteAccount, changeUsername } = useAuth();
+  const { user, logout, deleteAccount, changeUsername, isAppleLinked, linkAppleToCurrentAccount } = useAuth();
   const { blockedByMe, unblockUser } = useBlock();
 
+  const [linkingApple, setLinkingApple] = useState(false);
   const [liveNotif, setLiveNotif] = useState(user?.liveNotifEnabled ?? false);
   const [newUsername, setNewUsername] = useState('');
   const [savingUsername, setSavingUsername] = useState(false);
   const [mentionNotif, setMentionNotif] = useState(user?.mentionNotifEnabled ?? false);
+  // Absent = activé : le badge est visible par défaut.
+  const [badgeVisible, setBadgeVisible] = useState(user?.badgeVisible !== false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
   const [loadingBlocked, setLoadingBlocked] = useState(false);
   const [unlockingId, setUnlockingId] = useState<string | null>(null);
@@ -97,26 +105,66 @@ export default function SettingsScreen() {
     if (user) await updateDoc(doc(db, 'users', user.id), { mentionNotifEnabled: val });
   };
 
+  const toggleBadgeVisible = async (val: boolean) => {
+    setBadgeVisible(val);
+    if (user) await updateDoc(doc(db, 'users', user.id), { badgeVisible: val });
+  };
+
+  const handleLinkApple = async () => {
+    setLinkingApple(true);
+    const result = await linkAppleToCurrentAccount();
+    setLinkingApple(false);
+    if (result.success) {
+      Alert.alert('Compte Apple lié ✅', 'Tu pourras désormais te connecter directement avec Apple.');
+    } else if (result.error) {
+      Alert.alert('Erreur', result.error);
+    }
+  };
+
   const handleUnblock = async (userId: string) => {
     setUnlockingId(userId);
     await unblockUser(userId);
     setUnlockingId(null);
   };
 
+  const runDelete = async (password?: string) => {
+    setDeleting(true);
+    try {
+      await deleteAccount(password);
+      // Compte supprimé : le listener d'auth ramène sur l'écran de connexion.
+    } catch (e: any) {
+      const code = e?.code ?? '';
+      if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+        Alert.alert('Mot de passe incorrect', 'Ton compte n\'a pas été supprimé. Réessaie.');
+      } else if (code === 'auth/requires-recent-login') {
+        Alert.alert(
+          'Reconnexion nécessaire',
+          'Par sécurité, déconnecte-toi puis reconnecte-toi avant de supprimer ton compte. Aucune donnée n\'a été supprimée.',
+        );
+      } else if (code === 'ERR_REQUEST_CANCELED' || e?.message === 'apple-reauth-failed') {
+        // L'utilisateur a annulé la fenêtre Apple : rien à signaler.
+      } else {
+        Alert.alert('Erreur', 'La suppression a échoué. Aucune donnée n\'a été supprimée.');
+      }
+    } finally {
+      setDeleting(false);
+      setDeletePassword('');
+    }
+  };
+
   const handleDeleteAccount = () => {
     Alert.alert(
       'Supprimer mon compte',
-      'Cette action est irréversible. Tous tes posts et données seront supprimés définitivement.',
+      'Cette action est irréversible. Ton compte, tes posts, tes commentaires, tes abonnements et ton pseudo seront définitivement supprimés.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteAccount();
-              navigation.goBack();
-            }
-            catch { Alert.alert('Erreur', 'Reconnecte-toi et réessaie.'); }
+          text: 'Continuer',
+          style: 'destructive',
+          onPress: () => {
+            // Un compte Apple se ré-authentifie via Apple : aucun mot de passe à saisir.
+            if (isAppleLinked) runDelete();
+            else setShowDeleteConfirm(true);
           },
         },
       ]
@@ -182,6 +230,24 @@ export default function SettingsScreen() {
           />
         </Section>
 
+        {/* Profil */}
+        <Section title="Profil">
+          <SettingRow
+            icon="shield-outline"
+            iconColor={Colors.gold}
+            label="Badge de série"
+            sublabel="Affiche ton écusson de série sur ta photo de profil"
+            right={
+              <Switch
+                value={badgeVisible}
+                onValueChange={toggleBadgeVisible}
+                trackColor={{ false: '#333', true: Colors.gold + '80' }}
+                thumbColor={badgeVisible ? Colors.gold : '#888'}
+              />
+            }
+          />
+        </Section>
+
         {/* Pseudo */}
         {(() => {
           const lastChange = user?.lastUsernameChange ? new Date(user.lastUsernameChange) : null;
@@ -201,8 +267,10 @@ export default function SettingsScreen() {
               await changeUsername(trimmed);
               setNewUsername('');
               Alert.alert('Pseudo modifié ✅', `Ton nouveau pseudo est @${trimmed}`);
-            } catch {
-              Alert.alert('Erreur', 'Impossible de modifier le pseudo.');
+            } catch (e: any) {
+              Alert.alert('Erreur', e?.message === 'Ce pseudo est déjà utilisé.'
+                ? 'Ce pseudo est déjà utilisé.'
+                : 'Impossible de modifier le pseudo.');
             } finally {
               setSavingUsername(false);
             }
@@ -288,6 +356,20 @@ export default function SettingsScreen() {
 
         {/* Compte */}
         <Section title="Compte">
+          {Platform.OS === 'ios' && (
+            <>
+              <SettingRow
+                icon="logo-apple"
+                iconColor={isAppleLinked ? Colors.success : Colors.textMuted}
+                label={isAppleLinked ? 'Compte Apple lié' : 'Lier mon compte Apple'}
+                sublabel={isAppleLinked ? 'Connexion Apple directe activée' : 'Connecte-toi ensuite avec Apple sans mot de passe'}
+                onPress={isAppleLinked ? undefined : handleLinkApple}
+                right={linkingApple ? <ActivityIndicator size="small" color={Colors.textMuted} /> : (isAppleLinked ? <Ionicons name="checkmark-circle" size={18} color={Colors.success} /> : undefined)}
+                showArrow={!isAppleLinked && !linkingApple}
+              />
+              <View style={styles.separator} />
+            </>
+          )}
           <SettingRow
             icon="log-out-outline"
             iconColor="#EF4444"
@@ -306,6 +388,54 @@ export default function SettingsScreen() {
         </Section>
 
       </ScrollView>
+
+      {/* Confirmation de suppression : le mot de passe sert à ré-authentifier AVANT
+          toute suppression, pour ne jamais effacer les données d'un compte qui
+          survivrait ensuite côté Firebase Auth. */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Ionicons name="warning-outline" size={34} color="#EF4444" />
+            <Text style={styles.modalTitle}>Confirmer la suppression</Text>
+            <Text style={styles.modalText}>
+              Saisis ton mot de passe pour supprimer définitivement ton compte.
+              Cette action est irréversible.
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Mot de passe"
+              placeholderTextColor={Colors.textMuted}
+              value={deletePassword}
+              onChangeText={setDeletePassword}
+              secureTextEntry
+              autoCapitalize="none"
+              editable={!deleting}
+            />
+            <TouchableOpacity
+              style={[styles.modalDangerBtn, (!deletePassword || deleting) && { opacity: 0.4 }]}
+              disabled={!deletePassword || deleting}
+              onPress={() => { setShowDeleteConfirm(false); runDelete(deletePassword); }}
+              activeOpacity={0.85}
+            >
+              {deleting
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.modalDangerText}>Supprimer définitivement</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { setShowDeleteConfirm(false); setDeletePassword(''); }}
+              disabled={deleting}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.modalCancelText}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -422,4 +552,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   unblockText: { color: Colors.primary, fontSize: 13, fontWeight: '700' },
+
+  // Confirmation de suppression de compte
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#161616',
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    padding: Spacing.lg,
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  modalTitle: { color: Colors.text, fontSize: FontSize.lg, fontWeight: '800' },
+  modalText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    textAlign: 'center',
+    lineHeight: 19,
+  },
+  modalInput: {
+    width: '100%',
+    backgroundColor: '#1E1E1E',
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: '#2E2E2E',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 12,
+    color: Colors.text,
+    fontSize: FontSize.md,
+    marginTop: Spacing.xs,
+  },
+  modalDangerBtn: {
+    width: '100%',
+    backgroundColor: '#EF4444',
+    borderRadius: BorderRadius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.xs,
+  },
+  modalDangerText: { color: '#fff', fontSize: FontSize.md, fontWeight: '800' },
+  modalCancelText: {
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    paddingVertical: Spacing.sm,
+  },
 });

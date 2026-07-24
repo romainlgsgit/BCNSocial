@@ -1,0 +1,52 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "gameQueue": {
+      ".read": "auth != null",
+      ".indexOn": ["joinedAt"],
+      "$uid": { ".write": "auth != null" }
+    },
+
+    "gameInvites": {
+      ".read": "auth != null",
+      ".indexOn": ["toId"],
+      "$id": { ".write": "auth != null" }
+    },
+
+    "userActiveGame": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
+      }
+    },
+
+    "games": {
+      "$gameId": {
+        ".read": "auth != null && data.child('participants').child(auth.uid).exists()",
+        ".write": "auth != null && (!data.exists() || data.child('participants').child(auth.uid).exists())"
+      }
+    },
+
+    "penaltyQueue": {
+      ".read": "auth != null",
+      ".indexOn": ["joinedAt"],
+      "$uid": { ".write": "auth != null" }
+    },
+
+    "userActivePenalty": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null"
+      }
+    },
+
+    "penaltyGames": {
+      "$gameId": {
+        ".read": "auth != null && data.child('participants').child(auth.uid).exists()",
+        ".write": "auth != null && (!data.exists() || data.child('participants').child(auth.uid).exists())"
+      }
+    }
+  }
+}

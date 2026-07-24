@@ -21,11 +21,17 @@ import { useFollow } from '../context/FollowContext';
 import { useBlock } from '../context/BlockContext';
 import { useRatings } from '../context/RatingsContext';
 import { useFeaturedMatch } from '../context/MatchContext';
-import { PLAYERS, MATCHES } from '../data/mockData';
+import { usePlayers } from '../context/PlayersContext';
+import { MATCHES } from '../data/mockData';
 import { getRatingColor } from '../components/VotingWidget';
 import { Post, Match } from '../types';
 import PostCard from '../components/PostCard';
 import VerifiedBadge from '../components/VerifiedBadge';
+import StreakBadge from '../components/StreakBadge';
+import BanUserModal from '../components/BanUserModal';
+import { evaluateBan } from '../utils/ban';
+import { serverNow } from '../utils/serverTime';
+import { displayStreak } from '../utils/userStreak';
 
 // ─── Glass design tokens ──────────────────────────────────────────────────────
 
@@ -72,8 +78,16 @@ interface PublicUser {
   avatar: string;
   photoBase64?: string;
   verified?: boolean;
+  goldVerified?: boolean;
   followersCount: number;
   followingCount: number;
+  quizStreak?: number;
+  quizLastPlayed?: string;
+  badgeVisible?: boolean;
+  email?: string;
+  bannedUntil?: number | null;
+  banPermanent?: boolean;
+  banReason?: string | null;
 }
 
 // ─── RatingBadge ──────────────────────────────────────────────────────────────
@@ -195,6 +209,7 @@ function NotesTab({
   allMatches: Match[];
 }) {
   const { playerStats, matchStats } = useRatings();
+  const { players } = usePlayers();
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
 
   // Séparer les notes de match et les notes de joueur
@@ -211,7 +226,7 @@ function NotesTab({
   }, [votesData, allMatches]);
 
   const playerRatingsGrouped = useMemo(() => {
-    return PLAYERS.map((player) => {
+    return players.map((player) => {
       const matchHistory = allMatches
         .map((match) => {
           const key = `pr_${match.id}_${player.id}`;
@@ -221,7 +236,7 @@ function NotesTab({
         .filter((r): r is { match: Match; rating: number } => r !== null);
       return matchHistory.length > 0 ? { player, matchHistory } : null;
     }).filter((r): r is NonNullable<typeof r> => r !== null);
-  }, [votesData, allMatches]);
+  }, [votesData, allMatches, players]);
 
   if (matchRatings.length === 0 && playerRatingsGrouped.length === 0) {
     return <EmptyState icon="star-outline" text="Aucune note donnée pour l'instant." />;
@@ -319,7 +334,7 @@ export default function UserProfileScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
   const { userId } = route.params as { userId: string };
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isAdmin } = useAuth();
   const { isFollowing, followUser, unfollowUser } = useFollow();
   const { isBlockedByMe, isBlockedByThem, isAnyBlock, blockUser, unblockUser } = useBlock();
   const { monthlyMatches } = useFeaturedMatch();
@@ -331,11 +346,17 @@ export default function UserProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [followLoading, setFollowLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
+  const [showBanModal, setShowBanModal] = useState(false);
   const [notifEnabled, setNotifEnabled] = useState(false);
   const [notifLoading, setNotifLoading] = useState(false);
   const [blockLoading, setBlockLoading] = useState(false);
 
   const isOwnProfile = currentUser?.id === userId;
+  // Statut de ban de la personne consultée (heure serveur), pour l'icône de modération.
+  const isTargetBanned = evaluateBan(profileUser ? {
+    bannedUntil: profileUser.bannedUntil,
+    banPermanent: profileUser.banPermanent,
+  } : null, serverNow()).banned;
   const following = isFollowing(userId);
   const allMatches = useMemo(() => [...MATCHES, ...monthlyMatches], [monthlyMatches]);
 
@@ -351,8 +372,16 @@ export default function UserProfileScreen() {
             avatar: d.avatar || '🦁',
             photoBase64: d.photoBase64,
             verified: d.verified ?? false,
+            goldVerified: d.goldVerified ?? false,
             followersCount: d.followersCount ?? 0,
             followingCount: d.followingCount ?? 0,
+            quizStreak: d.quizStreak,
+            quizLastPlayed: d.quizLastPlayed,
+            badgeVisible: d.badgeVisible,
+            email: d.email,
+            bannedUntil: d.bannedUntil?.toMillis?.() ?? null,
+            banPermanent: !!d.banPermanent,
+            banReason: d.banReason ?? null,
           });
         }
         setLoading(false);
@@ -517,24 +546,31 @@ export default function UserProfileScreen() {
             <Ionicons name="arrow-back" size={20} color="rgba(255,255,255,0.9)" />
           </TouchableOpacity>
 
-          {/* Avatar */}
-          <View style={styles.avatarRing}>
-            {profileUser.photoBase64 ? (
-              <Image
-                source={{ uri: `data:image/jpeg;base64,${profileUser.photoBase64}` }}
-                style={styles.avatarImg}
-              />
-            ) : (
-              <View style={styles.avatarInner}>
-                <Text style={styles.avatarEmoji}>{profileUser.avatar}</Text>
-              </View>
-            )}
+          {/* Avatar + badge de série */}
+          <View style={styles.avatarWrap}>
+            <View style={styles.avatarRing}>
+              {profileUser.photoBase64 ? (
+                <Image
+                  source={{ uri: `data:image/jpeg;base64,${profileUser.photoBase64}` }}
+                  style={styles.avatarImg}
+                />
+              ) : (
+                <View style={styles.avatarInner}>
+                  <Text style={styles.avatarEmoji}>{profileUser.avatar}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.avatarStreakBadge} pointerEvents="none">
+              <StreakBadge streak={displayStreak(profileUser)} size={28} showNumber={false} />
+            </View>
           </View>
 
           {/* Nom */}
           <View style={styles.nameRow}>
             <Text style={styles.username}>{profileUser.username}</Text>
-            {profileUser.verified && <VerifiedBadge size={18} />}
+            {(profileUser.goldVerified || profileUser.verified) && (
+              <VerifiedBadge size={18} gold={!!profileUser.goldVerified} />
+            )}
           </View>
 
           {/* Compteurs */}
@@ -605,6 +641,16 @@ export default function UserProfileScreen() {
                   : <Ionicons name="ellipsis-horizontal" size={18} color="rgba(255,255,255,0.6)" />
                 }
               </TouchableOpacity>
+              {/* Modération : bouclier visible uniquement par l'admin */}
+              {isAdmin && (
+                <TouchableOpacity
+                  style={[styles.bellBtn, isTargetBanned && { borderColor: '#EF4444', backgroundColor: '#EF444422' }]}
+                  onPress={() => setShowBanModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="shield" size={18} color={isTargetBanned ? '#EF4444' : Colors.gold} />
+                </TouchableOpacity>
+              )}
             </View>
           ) : isOwnProfile ? (
             <View style={styles.ownPill}>
@@ -649,6 +695,19 @@ export default function UserProfileScreen() {
 
         <View style={{ height: Spacing.xxl }} />
       </ScrollView>
+
+      {isAdmin && profileUser && (
+        <BanUserModal
+          visible={showBanModal}
+          onClose={() => setShowBanModal(false)}
+          target={{ uid: userId, username: profileUser.username, email: profileUser.email }}
+          banState={{
+            bannedUntil: profileUser.bannedUntil,
+            banPermanent: profileUser.banPermanent,
+            banReason: profileUser.banReason,
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -680,6 +739,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  avatarWrap: { position: 'relative' },
+  avatarStreakBadge: { position: 'absolute', top: -6, right: -8 },
   avatarRing: {
     width: 92,
     height: 92,

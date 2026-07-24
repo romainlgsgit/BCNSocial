@@ -2,19 +2,26 @@
   "expo": {
     "name": "BCN Social",
     "slug": "barca-app",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#A50044"
+      "backgroundColor": "#230731"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a5a8f932-8586-4dea-8571-51c41960c37c"
     },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.romainlgs.barca-app",
       "buildNumber": "1",
+      "usesAppleSignIn": true,
       "privacyManifests": {
         "NSPrivacyCollectedDataTypes": []
       },

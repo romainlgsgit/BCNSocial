@@ -43,5 +43,8 @@ yarn-error.*
 # Cloud Functions build output
 functions/lib/
 
+# Cloudflare Worker : état local Miniflare
+.wrangler/
+
 # Claude Code local config
 .claude/

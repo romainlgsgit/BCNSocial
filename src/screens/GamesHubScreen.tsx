@@ -1,20 +1,38 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, FontSize, BorderRadius, Spacing } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useGame, inviteMode } from '../context/GameContext';
 
-const GAMES = [
+type GameMode = 'football' | 'penalty';
+
+// Jeu vedette : carte pleine largeur avec son visuel carré.
+const FEATURED = {
+  key: 'DraftFoot',
+  title: 'Draft Foot 27',
+  desc: 'Compose ton équipe de rêve et affronte les autres drafts',
+  image: require('../../assets/draftfoot.png'),
+  accent: '#7B4DFF',
+};
+
+const GAMES: {
+  key: string; title: string; desc: string; icon: any;
+  gradient: readonly [string, string]; accent: string; badge: string;
+  mode: GameMode | null; // jeux 1v1 uniquement : porte le badge de défis reçus
+}[] = [
   {
     key: 'Pronostics',
     title: 'Pronos',
     desc: 'Prédit les résultats des matchs et gagne des pièces',
     icon: 'trophy' as const,
-    gradient: ['#004D98', '#002D5A'] as const,
-    accent: Colors.secondary,
+    // Fond bleu Barça → l'accent doit être un bleu clair, sinon le trophée disparaît.
+    gradient: ['#003A75', '#001F42'] as const,
+    accent: '#6FB4FF',
     badge: '🪙',
+    mode: null,
   },
   {
     key: 'Quiz',
@@ -24,12 +42,41 @@ const GAMES = [
     gradient: ['#1a1a00', '#2d2600'] as const,
     accent: Colors.gold,
     badge: '🧠',
+    mode: null,
+  },
+  {
+    key: 'Shootout',
+    title: 'Football 1v1',
+    desc: 'Défie un ami ou un adversaire au hasard, 1er à 5 buts gagne 100 pièces',
+    icon: 'football' as const,
+    gradient: ['#1a0000', '#2d0000'] as const,
+    accent: Colors.primary,
+    badge: '⚽',
+    mode: 'football' as const,
+  },
+  {
+    key: 'Penalty',
+    title: 'Tirs au But 1v1',
+    desc: '5 tireurs, 1 gardien : vise une case, le gardien plonge — 100 pièces au vainqueur',
+    icon: 'hand-left' as const,
+    gradient: ['#00131a', '#002733'] as const,
+    accent: '#4FD1E0',
+    badge: '🥅',
+    mode: 'penalty' as const,
   },
 ];
 
 export default function GamesHubScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
+  const { pendingInvites } = useGame();
+
+  // Les défis des deux jeux 1v1 arrivent dans le même flux → un badge par jeu.
+  const inviteCounts = useMemo(() => {
+    const counts = { football: 0, penalty: 0 };
+    for (const inv of pendingInvites) counts[inviteMode(inv)]++;
+    return counts;
+  }, [pendingInvites]);
 
   return (
     <View style={styles.root}>
@@ -50,31 +97,65 @@ export default function GamesHubScreen() {
         </View>
       )}
 
-      <View style={styles.cards}>
-        {GAMES.map(game => (
-          <TouchableOpacity
-            key={game.key}
-            style={styles.card}
-            onPress={() => navigation.navigate(game.key)}
-            activeOpacity={0.85}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <TouchableOpacity
+          style={[styles.featuredCard, { borderColor: FEATURED.accent + '55' }]}
+          onPress={() => navigation.navigate(FEATURED.key)}
+          activeOpacity={0.9}
+        >
+          <Image source={FEATURED.image} style={styles.featuredImage} resizeMode="cover" />
+
+          {/* Voile sombre en bas pour garder le texte lisible sur le visuel. */}
+          <LinearGradient
+            colors={['transparent', 'rgba(0,0,0,0.55)', 'rgba(0,0,0,0.92)']}
+            style={styles.featuredOverlay}
           >
-            <LinearGradient colors={game.gradient as any} style={styles.cardGradient}>
-              <View style={[styles.iconCircle, { borderColor: game.accent + '50', backgroundColor: game.accent + '15' }]}>
-                <Ionicons name={game.icon} size={32} color={game.accent} />
+            <View style={styles.featuredBody}>
+              <View style={styles.featuredTag}>
+                <Ionicons name="star" size={11} color={FEATURED.accent} />
+                <Text style={[styles.featuredTagText, { color: FEATURED.accent }]}>NOUVEAU</Text>
               </View>
+              <Text style={styles.featuredTitle}>{FEATURED.title}</Text>
+              <Text style={styles.featuredDesc}>{FEATURED.desc}</Text>
+            </View>
 
-              <View style={styles.cardBody}>
-                <Text style={styles.cardTitle}>{game.title}</Text>
-                <Text style={styles.cardDesc}>{game.desc}</Text>
-              </View>
+            <View style={[styles.playCircle, { backgroundColor: FEATURED.accent }]}>
+              <Ionicons name="play" size={20} color="#fff" />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
 
-              <View style={[styles.arrowCircle, { backgroundColor: game.accent + '20' }]}>
-                <Ionicons name="arrow-forward" size={18} color={game.accent} />
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
-        ))}
-      </View>
+        <Text style={styles.sectionTitle}>Autres jeux</Text>
+
+        <View style={styles.grid}>
+          {GAMES.map(game => (
+            <TouchableOpacity
+              key={game.key}
+              style={styles.tile}
+              onPress={() => navigation.navigate(game.key)}
+              activeOpacity={0.85}
+            >
+              <LinearGradient colors={game.gradient as any} style={styles.tileGradient}>
+                <View style={[styles.iconCircle, { borderColor: game.accent + '50', backgroundColor: game.accent + '15' }]}>
+                  <Ionicons name={game.icon} size={26} color={game.accent} />
+                </View>
+
+                <Text style={styles.tileTitle} numberOfLines={1}>{game.title}</Text>
+                <Text style={styles.tileBadge}>{game.badge}</Text>
+
+                {game.mode && inviteCounts[game.mode] > 0 && (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeText}>{inviteCounts[game.mode]}</Text>
+                  </View>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -108,34 +189,97 @@ const styles = StyleSheet.create({
   coinsText: { color: Colors.textSecondary, fontSize: 13 },
   coinsValue: { color: Colors.gold, fontWeight: '800' },
 
-  cards: { flex: 1, justifyContent: 'center', paddingHorizontal: 16, gap: 14 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 28, gap: 18 },
 
-  card: { borderRadius: 20, overflow: 'hidden', borderWidth: 1, borderColor: '#222' },
-  cardGradient: {
+  // --- Jeu vedette ---
+  featuredCard: {
+    aspectRatio: 1,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    backgroundColor: '#12081F',
+  },
+  featuredImage: { width: '100%', height: '100%' },
+  featuredOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 18,
+  },
+  featuredBody: { flex: 1, gap: 5 },
+  featuredTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    gap: 16,
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+  },
+  featuredTagText: { fontSize: 10, fontWeight: '900', letterSpacing: 1 },
+  featuredTitle: { color: Colors.text, fontSize: 24, fontWeight: '900' },
+  featuredDesc: { color: Colors.textSecondary, fontSize: 13, lineHeight: 18 },
+
+  playCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
+  // --- Grille des autres jeux ---
+  sectionTitle: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: -6,
+  },
+
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  tile: {
+    // Deux colonnes : (100% - gap) / 2
+    width: '48.3%',
+    aspectRatio: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  tileGradient: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: 12 },
+
   iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  cardBody: { flex: 1, gap: 4 },
-  cardTitle: { color: Colors.text, fontSize: 20, fontWeight: '800' },
-  cardDesc: { color: Colors.textMuted, fontSize: 13, lineHeight: 18 },
+  tileTitle: { color: Colors.text, fontSize: 14, fontWeight: '800', textAlign: 'center' },
+  tileBadge: { position: 'absolute', top: 8, left: 10, fontSize: 14 },
 
-  arrowCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  notifBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.error,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 1.5,
+    borderColor: '#0A0A0A',
   },
+  notifBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 });

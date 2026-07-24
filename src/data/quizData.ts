@@ -7,6 +7,9 @@
 // répète ; au cycle suivant la banque est re-mélangée → les regroupements changent.
 // Les réponses sont en plus mélangées chaque jour (la bonne n'est jamais au même endroit).
 
+import { quizDayKey, quizDayNumber } from '../utils/quizDay';
+import { QUIZ_QUESTIONS_EXTRA } from './quizBankExtra';
+
 export interface QuizQuestion {
   id: string;
   question: string;
@@ -122,19 +125,22 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
 
 export const DAILY_QUESTION_COUNT = 5;
 
-// Identifiant du jour au format YYYY-MM-DD (fuseau local)
+// Banque complète = questions historiques + extension. L'import est fait ici (et non
+// l'inverse) pour que `quizBankExtra` puisse réutiliser le type `QuizQuestion`.
+const ALL_QUESTIONS: QuizQuestion[] = [...QUIZ_QUESTIONS, ...QUIZ_QUESTIONS_EXTRA];
+
+/** Nombre de jours consécutifs sans qu'une question ne se répète. */
+export const DAYS_WITHOUT_REPEAT = Math.floor(ALL_QUESTIONS.length / DAILY_QUESTION_COUNT);
+
+// Identifiant de la journée de quiz (bascule à 9h, heure de Paris — pas à minuit,
+// et pas dans le fuseau de l'appareil : tout le monde a le même quiz au même moment).
 export function getTodayKey(date = new Date()): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return quizDayKey(date);
 }
 
-// Nombre de jours écoulés depuis l'epoch (graine déterministe)
+// Numéro de journée (graine déterministe), aligné sur la bascule de 9h Paris
 function dayNumber(date = new Date()): number {
-  return Math.floor(
-    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime() / 86_400_000
-  );
+  return quizDayNumber(date);
 }
 
 // PRNG déterministe (mulberry32) → mélanges reproductibles à partir d'une graine.
@@ -174,22 +180,27 @@ function shuffleOptions(q: QuizQuestion, seed: number): QuizQuestion {
   };
 }
 
+// Ordre de passage FIXE de la banque, mélangé une seule fois.
+//
+// Remélanger la banque à chaque cycle (ce que faisait la version précédente) ne
+// garantit l'absence de répétition que pour un utilisateur qui commence pile au
+// début d'un cycle : à cheval sur deux cycles, les tirages se recoupent et une
+// question peut retomber au bout de quelques semaines. Avec un ordre fixe parcouru
+// en boucle, TOUTE fenêtre de `DAYS_WITHOUT_REPEAT` jours consécutifs couvre la
+// banque exactement une fois — la garantie vaut quel que soit le jour de départ.
+const ROTATION = seededShuffle(ALL_QUESTIONS, 20260722);
+
 // Sélectionne les questions du jour de façon déterministe.
-// - Mélange global de la banque (graine = cycle) → aucune répétition sur un cycle complet.
+// - Parcours en boucle de l'ordre fixe → aucune répétition sur 3 mois glissants.
 // - Mélange des réponses (graine = jour + question) → position de la bonne réponse variable.
 export function getDailyQuestions(date = new Date()): QuizQuestion[] {
-  const total = QUIZ_QUESTIONS.length;
   const perDay = DAILY_QUESTION_COUNT;
-  const daysPerCycle = Math.max(1, Math.floor(total / perDay));
+  const usable = DAYS_WITHOUT_REPEAT * perDay; // ignore le reliquat (< 5 questions)
 
   const day = dayNumber(date);
-  const cycle = Math.floor(day / daysPerCycle);
-  const indexInCycle = ((day % daysPerCycle) + daysPerCycle) % daysPerCycle;
+  const start = (((day * perDay) % usable) + usable) % usable;
 
-  const shuffled = seededShuffle(QUIZ_QUESTIONS, cycle + 1);
-  const start = indexInCycle * perDay;
-
-  return shuffled
+  return ROTATION
     .slice(start, start + perDay)
     .map((q, i) => shuffleOptions(q, (day + 1) * 1000 + i));
 }

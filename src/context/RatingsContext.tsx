@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
-  doc, setDoc, collection, onSnapshot,
+  doc, setDoc, deleteDoc, updateDoc, deleteField, collection, onSnapshot, getDocs,
   runTransaction, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -31,6 +31,10 @@ interface RatingsContextType {
   matchStats: Record<string, MatchStats>;
   myMatchRatings: Record<string, number>;
   myPlayerRatings: Record<string, number>;
+  /** Interne : déclenché par useRatings(), charge les agrégats au premier besoin. */
+  ensureLoaded: () => Promise<void>;
+  /** Admin : remet à zéro les notes de tous les joueurs (stats agrégées + votes individuels). */
+  resetAllPlayerRatings: () => Promise<void>;
 }
 
 const RatingsContext = createContext<RatingsContextType | null>(null);
@@ -43,49 +47,40 @@ export function RatingsProvider({ children }: { children: React.ReactNode }) {
   const [playerStats, setPlayerStats] = useState<Record<string, PlayerStats>>({});
   const [matchStats, setMatchStats] = useState<Record<string, MatchStats>>({});
 
-  // Écoute la collection lineups (temps réel, toute l'app)
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'lineups'), (snap) => {
+  // Compos + stats agrégées : données éditées rarement (admin / cumul de votes). Une
+  // LECTURE PONCTUELLE suffit — inutile de garder 3 écouteurs temps réel sur des
+  // collections entières (très coûteux en lectures Firestore, toute l'app). Les votes
+  // de l'utilisateur mettent à jour ces stats localement tout de suite (voir plus bas).
+  //
+  // Chargement PARESSEUX : déclenché par le premier écran qui appelle useRatings(), pas
+  // au lancement. Ces 3 collections ne servent qu'aux écrans Notes/Joueurs/Profil/Admin ;
+  // les lire au démarrage coûtait ~21 lectures à CHAQUE ouverture de l'app, même à qui
+  // ne consulte que le fil.
+  const reloadAggregates = useCallback(async () => {
+    try {
+      const [lin, ps, ms] = await Promise.all([
+        getDocs(collection(db, 'lineups')),
+        getDocs(collection(db, 'playerStats')),
+        getDocs(collection(db, 'matchStats')),
+      ]);
       const lineups: Record<string, Player[]> = {};
-      snap.docs.forEach((d) => {
-        lineups[d.id] = d.data().players as Player[];
-      });
+      lin.docs.forEach((d) => { lineups[d.id] = d.data().players as Player[]; });
       setValidatedLineups(lineups);
-    });
-    return unsub;
+      const pstats: Record<string, PlayerStats> = {};
+      ps.docs.forEach((d) => { const x = d.data(); pstats[d.id] = { averageRating: x.averageRating ?? 0, totalVotes: x.totalVotes ?? 0 }; });
+      setPlayerStats(pstats);
+      const mstats: Record<string, MatchStats> = {};
+      ms.docs.forEach((d) => { const x = d.data(); mstats[d.id] = { averageRating: x.averageRating ?? 0, totalVotes: x.totalVotes ?? 0 }; });
+      setMatchStats(mstats);
+    } catch { /* silencieux */ }
   }, []);
 
-  // Écoute les stats agrégées des joueurs (temps réel)
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'playerStats'), (snap) => {
-      const stats: Record<string, PlayerStats> = {};
-      snap.docs.forEach((d) => {
-        const data = d.data();
-        stats[d.id] = {
-          averageRating: data.averageRating ?? 0,
-          totalVotes: data.totalVotes ?? 0,
-        };
-      });
-      setPlayerStats(stats);
-    });
-    return unsub;
-  }, []);
-
-  // Écoute les stats agrégées des matchs (temps réel)
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'matchStats'), (snap) => {
-      const stats: Record<string, MatchStats> = {};
-      snap.docs.forEach((d) => {
-        const data = d.data();
-        stats[d.id] = {
-          averageRating: data.averageRating ?? 0,
-          totalVotes: data.totalVotes ?? 0,
-        };
-      });
-      setMatchStats(stats);
-    });
-    return unsub;
-  }, []);
+  const loadStartedRef = useRef(false);
+  const ensureLoaded = useCallback(async () => {
+    if (loadStartedRef.current) return;
+    loadStartedRef.current = true;
+    await reloadAggregates();
+  }, [reloadAggregates]);
 
   // Charge les votes de l'utilisateur connecté
   useEffect(() => {
@@ -152,6 +147,9 @@ export function RatingsProvider({ children }: { children: React.ReactNode }) {
 
         tx.set(statsRef, { totalRatingSum, totalVotes, averageRating }, { merge: true });
         tx.set(userVoteRef, { [`mr_${matchId}`]: rating }, { merge: true });
+        return { averageRating, totalVotes };
+      }).then((res) => {
+        if (res) setMatchStats((prev) => ({ ...prev, [matchId]: res }));
       }).catch(console.error);
     },
     [user?.id]
@@ -198,6 +196,9 @@ export function RatingsProvider({ children }: { children: React.ReactNode }) {
 
         tx.set(statsRef, { totalRatingSum, totalVotes, averageRating }, { merge: true });
         tx.set(userVoteRef, { [`pr_${key}`]: rating }, { merge: true });
+        return { averageRating, totalVotes };
+      }).then((res) => {
+        if (res) setPlayerStats((prev) => ({ ...prev, [playerId]: res }));
       }).catch(console.error);
     },
     [user?.id]
@@ -220,6 +221,27 @@ export function RatingsProvider({ children }: { children: React.ReactNode }) {
   const getLineup = (matchId: string): Player[] | null =>
     validatedLineups[matchId] ?? null;
 
+  const resetAllPlayerRatings = useCallback(async () => {
+    const [psSnap, uvSnap] = await Promise.all([
+      getDocs(collection(db, 'playerStats')),
+      getDocs(collection(db, 'userVotes')),
+    ]);
+
+    await Promise.all(psSnap.docs.map((d) => deleteDoc(doc(db, 'playerStats', d.id))));
+
+    await Promise.all(uvSnap.docs.map((d) => {
+      const updates: Record<string, ReturnType<typeof deleteField>> = {};
+      Object.keys(d.data()).forEach((key) => {
+        if (key.startsWith('pr_')) updates[key] = deleteField();
+      });
+      if (Object.keys(updates).length === 0) return Promise.resolve();
+      return updateDoc(doc(db, 'userVotes', d.id), updates);
+    }));
+
+    setPlayerStats({});
+    setPlayerRatings({});
+  }, []);
+
   return (
     <RatingsContext.Provider
       value={{
@@ -234,6 +256,8 @@ export function RatingsProvider({ children }: { children: React.ReactNode }) {
         matchStats,
         myMatchRatings: matchRatings,
         myPlayerRatings: playerRatings,
+        ensureLoaded,
+        resetAllPlayerRatings,
       }}
     >
       {children}
@@ -244,5 +268,8 @@ export function RatingsProvider({ children }: { children: React.ReactNode }) {
 export function useRatings() {
   const ctx = useContext(RatingsContext);
   if (!ctx) throw new Error('useRatings must be used within RatingsProvider');
+  // Le simple fait qu'un écran consomme les notes déclenche leur chargement (une fois).
+  const { ensureLoaded } = ctx;
+  useEffect(() => { ensureLoaded(); }, [ensureLoaded]);
   return ctx;
 }

@@ -8,11 +8,8 @@ import {
   TextInput,
   ActivityIndicator,
   StatusBar,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
   Image,
-  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
@@ -27,260 +24,20 @@ import { useAuth } from '../context/AuthContext';
 import { Post, Match } from '../types';
 import PostCard from '../components/PostCard';
 import VerifiedBadge from '../components/VerifiedBadge';
+import StreakBadge from '../components/StreakBadge';
+import { displayStreak } from '../utils/userStreak';
 import { useFollow } from '../context/FollowContext';
 import { useRatings } from '../context/RatingsContext';
 import { useFeaturedMatch } from '../context/MatchContext';
-import { PLAYERS, MATCHES } from '../data/mockData';
+import { usePlayers } from '../context/PlayersContext';
+import { MATCHES } from '../data/mockData';
 import { getRatingColor } from '../components/VotingWidget';
 import { getLevelInfo } from '../utils/levels';
+import { useMatchLabels, formatMatchLabel } from '../utils/matchLabels';
+import { isBetExpired, MAX_SETTLED_BETS } from '../context/PronoContext';
 import { usePremium } from '../context/PremiumContext';
 
-type Tab = 'login' | 'register';
 type ProfileTabType = 'publications' | 'pronos' | 'notes';
-
-function ForgotPasswordModal({ visible, initialIdentifier, onClose }: { visible: boolean; initialIdentifier: string; onClose: () => void }) {
-  const { resetPassword } = useAuth();
-  const [identifier, setIdentifier] = useState(initialIdentifier);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (visible) {
-      setIdentifier(initialIdentifier);
-      setSent(false);
-      setError('');
-    }
-  }, [visible, initialIdentifier]);
-
-  const handleSend = async () => {
-    if (!identifier.trim()) {
-      setError('Renseigne ton email ou ton pseudo.');
-      return;
-    }
-    setError('');
-    setSending(true);
-    const success = await resetPassword(identifier);
-    setSending(false);
-    if (success) setSent(true);
-    else setError('Impossible d\'envoyer le lien. Vérifie ton pseudo/email.');
-  };
-
-  return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.forgotOverlay}>
-        <View style={styles.forgotCard}>
-          <View style={styles.forgotHeader}>
-            <Text style={styles.forgotTitle}>Mot de passe oublié</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={24} color={Colors.textSecondary} />
-            </TouchableOpacity>
-          </View>
-
-          {sent ? (
-            <View style={styles.forgotSentBox}>
-              <Ionicons name="checkmark-circle" size={40} color={Colors.success} />
-              <Text style={styles.forgotSentText}>
-                Si un compte existe pour « {identifier.trim()} », un email de réinitialisation vient d'être envoyé.
-              </Text>
-              <TouchableOpacity style={styles.submitBtn} onPress={onClose} activeOpacity={0.85}>
-                <Text style={styles.submitBtnText}>OK</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              <Text style={styles.forgotSub}>
-                Entre ton email ou ton pseudo, on t'envoie un lien pour réinitialiser ton mot de passe.
-              </Text>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Email ou pseudo</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="email@exemple.com ou ton_pseudo"
-                  placeholderTextColor={Colors.textMuted}
-                  value={identifier}
-                  onChangeText={setIdentifier}
-                  autoCapitalize="none"
-                />
-              </View>
-
-              {error !== '' && (
-                <View style={styles.errorBox}>
-                  <Ionicons name="warning-outline" size={15} color={Colors.error} />
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={styles.submitBtn}
-                onPress={handleSend}
-                disabled={sending}
-                activeOpacity={0.85}
-              >
-                {sending ? (
-                  <ActivityIndicator color={Colors.text} />
-                ) : (
-                  <Text style={styles.submitBtnText}>Envoyer le lien</Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function AuthForm() {
-  const { login, register, isLoading } = useAuth();
-  const [tab, setTab] = useState<Tab>('login');
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [forgotVisible, setForgotVisible] = useState(false);
-
-  const handleSubmit = async () => {
-    setError('');
-    if (!email || !password) {
-      setError('Remplis tous les champs.');
-      return;
-    }
-    if (tab === 'register' && !username) {
-      setError('Choisis un pseudo.');
-      return;
-    }
-
-    let success: boolean;
-    if (tab === 'login') {
-      success = await login(email, password);
-      if (!success) setError('Identifiants incorrects.');
-    } else {
-      success = await register(username, email, password);
-      if (!success) setError('Erreur lors de l\'inscription.');
-    }
-  };
-
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.authContainer}
-    >
-      <ScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <LinearGradient
-          colors={[Colors.primary, '#6B0030']}
-          style={styles.authHeader}
-        >
-          <View style={styles.authHeaderIcon}>
-            <Ionicons name="football" size={32} color="#fff" />
-          </View>
-          <Text style={styles.authHeaderTitle}>
-            {tab === 'login' ? 'Bon retour !' : 'Rejoins la Culer Nation !'}
-          </Text>
-          <Text style={styles.authHeaderSub}>
-            {tab === 'login'
-              ? 'Connecte-toi pour accéder à ton compte'
-              : '200 pièces offertes à l\'inscription 🪙'}
-          </Text>
-        </LinearGradient>
-
-        {/* Tabs */}
-        <View style={styles.tabRow}>
-          {(['login', 'register'] as Tab[]).map((t) => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.tabBtn, tab === t && styles.tabBtnActive]}
-              onPress={() => { setTab(t); setError(''); }}
-            >
-              <Text style={[styles.tabBtnText, tab === t && styles.tabBtnTextActive]}>
-                {t === 'login' ? 'Connexion' : 'Inscription'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.formContainer}>
-          {tab === 'register' && (
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Pseudo</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="ton_pseudo"
-                placeholderTextColor={Colors.textMuted}
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-              />
-            </View>
-          )}
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>{tab === 'login' ? 'Email ou pseudo' : 'Email'}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={tab === 'login' ? 'email ou pseudo' : 'email@exemple.com'}
-              placeholderTextColor={Colors.textMuted}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType={tab === 'login' ? 'default' : 'email-address'}
-              autoCapitalize="none"
-            />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Mot de passe</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="••••••••"
-              placeholderTextColor={Colors.textMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-            />
-          </View>
-
-          {tab === 'login' && (
-            <TouchableOpacity onPress={() => setForgotVisible(true)} style={styles.forgotLink}>
-              <Text style={styles.forgotLinkText}>Mot de passe oublié ?</Text>
-            </TouchableOpacity>
-          )}
-
-          {error !== '' && (
-            <View style={styles.errorBox}>
-              <Ionicons name="warning-outline" size={15} color={Colors.error} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity
-            style={styles.submitBtn}
-            onPress={handleSubmit}
-            disabled={isLoading}
-            activeOpacity={0.85}
-          >
-            {isLoading ? (
-              <ActivityIndicator color={Colors.text} />
-            ) : (
-              <Text style={styles.submitBtnText}>
-                {tab === 'login' ? 'Se connecter' : 'Créer mon compte'}
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-
-      <ForgotPasswordModal
-        visible={forgotVisible}
-        initialIdentifier={email}
-        onClose={() => setForgotVisible(false)}
-      />
-    </KeyboardAvoidingView>
-  );
-}
 
 const PROFILE_TABS: { key: ProfileTabType; label: string; icon: any; iconOutline: any }[] = [
   { key: 'publications', label: 'Posts',  icon: 'chatbubble-ellipses',   iconOutline: 'chatbubble-ellipses-outline' },
@@ -300,6 +57,7 @@ function ProfileDashboard() {
   const { playerStats, matchStats, myMatchRatings, myPlayerRatings } = useRatings();
   const { myFollowersCount, myFollowingCount } = useFollow();
   const { monthlyMatches } = useFeaturedMatch();
+  const { players } = usePlayers();
 
   const allMatches = useMemo(() => [...MATCHES, ...monthlyMatches], [monthlyMatches]);
 
@@ -311,7 +69,7 @@ function ProfileDashboard() {
   );
 
   const ratedPlayersData = useMemo(() =>
-    PLAYERS
+    players
       .map(player => {
         const matchHistory = allMatches
           .map(match => {
@@ -322,7 +80,7 @@ function ProfileDashboard() {
         return matchHistory.length > 0 ? { player, matchHistory } : null;
       })
       .filter((r): r is NonNullable<typeof r> => r !== null),
-    [myPlayerRatings, allMatches]
+    [myPlayerRatings, allMatches, players]
   );
 
   const [betsMap, setBetsMap] = useState<Record<string, any>>({});
@@ -333,6 +91,27 @@ function ProfileDashboard() {
       setBetsMap(snap.exists() ? (snap.data() as Record<string, any>) : {});
     });
   }, [user?.id]);
+
+  // Historique affiché = même rétention que la purge Firestore (3 derniers paris
+  // réglés, 30 jours max). Les paris hors fenêtre peuvent encore être présents
+  // localement — purge pas encore passée, ou faite depuis un autre appareil.
+  const settledBets = useMemo(
+    () => Object.entries(betsMap)
+      .filter(([, b]) => b.result !== undefined && !isBetExpired(b))
+      .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0))
+      .slice(0, MAX_SETTLED_BETS),
+    [betsMap],
+  );
+
+  // Un match joué sort du calendrier chargé : pour ces paris-là (et les anciens,
+  // enregistrés avant qu'on fige le libellé), on retrouve le nom des équipes.
+  const unlabeledMatchIds = useMemo(
+    () => settledBets
+      .filter(([id, bet]) => !bet?.matchLabel && !allMatches.some(m => m.id === id))
+      .map(([id]) => id),
+    [settledBets, allMatches],
+  );
+  const resolvedLabels = useMatchLabels(unlabeledMatchIds);
 
   const handlePickPhoto = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -393,6 +172,9 @@ function ProfileDashboard() {
 
   const renderBet = ([matchId, bet]: [string, any]) => {
     const match = allMatches.find(m => m.id === matchId);
+    const matchLabel = match
+      ? formatMatchLabel(match.homeTeam.shortName, match.awayTeam.shortName)
+      : bet.matchLabel ?? resolvedLabels[matchId] ?? null;
     const predLabel = bet.prediction === 'home' ? 'Domicile' : bet.prediction === 'draw' ? 'Nul' : 'Extérieur';
     const isWon = bet.result === 'won';
     const isLost = bet.result === 'lost';
@@ -402,7 +184,7 @@ function ProfileDashboard() {
       <View key={matchId} style={styles.pronoRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.pronoMatch}>
-            {match ? `${match.homeTeam.shortName} – ${match.awayTeam.shortName}` : `Match #${matchId}`}
+            {matchLabel ?? 'Match'}
           </Text>
           <Text style={styles.pronoMeta}>{predLabel} · Misé : {bet.coins} 🪙</Text>
         </View>
@@ -453,6 +235,10 @@ function ProfileDashboard() {
               </View>
             )}
           </View>
+          {/* Badge de série, posé en haut à droite sans masquer la photo */}
+          <View style={styles.avatarStreakBadge} pointerEvents="none">
+            <StreakBadge streak={displayStreak(user)} size={30} showNumber={false} />
+          </View>
           <View style={styles.avatarEditBadge}>
             {uploadingPhoto
               ? <ActivityIndicator size="small" color="#fff" />
@@ -464,7 +250,9 @@ function ProfileDashboard() {
         {/* Nom + badge */}
         <View style={styles.profileUsernameRow}>
           <Text style={styles.profileUsername}>{user.username}</Text>
-          {user.verified && isPremium && <VerifiedBadge size={20} />}
+          {(user.goldVerified || (user.verified && isPremium)) && (
+            <VerifiedBadge size={20} gold={!!user.goldVerified} />
+          )}
         </View>
         <Text style={styles.profileEmail}>{user.email}</Text>
 
@@ -555,16 +343,13 @@ function ProfileDashboard() {
 
         {/* Pronos */}
         {profileTab === 'pronos' && (() => {
-          const settled = Object.entries(betsMap)
-            .filter(([, b]) => b.result !== undefined)
-            .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0));
           if (Object.keys(betsMap).length === 0) return (
             <View style={styles.emptyBox}>
               <Ionicons name="trophy-outline" size={36} color={Colors.textMuted} />
               <Text style={styles.emptyText}>Tu n'as pas encore fait de pronostic.</Text>
             </View>
           );
-          return settled.length === 0 ? (
+          return settledBets.length === 0 ? (
             <View style={styles.emptyBox}>
               <Ionicons name="trophy-outline" size={36} color={Colors.textMuted} />
               <Text style={styles.emptyText}>Aucun pari terminé pour l'instant.</Text>
@@ -575,7 +360,7 @@ function ProfileDashboard() {
                 <Ionicons name="receipt-outline" size={13} color={Colors.textSecondary} />
                 <Text style={styles.notesSubtitle}>Derniers paris</Text>
               </View>
-              {settled.map(renderBet)}
+              {settledBets.map(renderBet)}
             </>
           );
         })()}
@@ -680,20 +465,10 @@ function ProfileDashboard() {
 }
 
 export default function ProfileScreen() {
-  const { isAuthenticated } = useAuth();
-
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
-      {!isAuthenticated && (
-        <View style={styles.guestHeader}>
-          <View style={styles.guestHeaderRow}>
-            <Ionicons name="person" size={22} color={Colors.text} />
-            <Text style={styles.guestHeaderTitle}>Profil</Text>
-          </View>
-        </View>
-      )}
-      {isAuthenticated ? <ProfileDashboard /> : <AuthForm />}
+      <ProfileDashboard />
     </View>
   );
 }
@@ -702,176 +477,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Colors.background,
-  },
-  guestHeader: {
-    paddingTop: 60,
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.md,
-  },
-  guestHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  guestHeaderTitle: {
-    fontSize: FontSize.xl,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  // Auth
-  authContainer: {
-    flex: 1,
-  },
-  authHeader: {
-    paddingTop: 60,
-    paddingBottom: Spacing.xl,
-    paddingHorizontal: Spacing.md,
-    alignItems: 'center',
-  },
-  authHeaderIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.sm,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
-  authHeaderTitle: {
-    fontSize: FontSize.xxl,
-    fontWeight: '800',
-    color: Colors.text,
-    textAlign: 'center',
-  },
-  authHeaderSub: {
-    fontSize: FontSize.sm,
-    color: 'rgba(255,255,255,0.7)',
-    marginTop: Spacing.xs,
-    textAlign: 'center',
-  },
-  tabRow: {
-    flexDirection: 'row',
-    margin: Spacing.md,
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    alignItems: 'center',
-  },
-  tabBtnActive: {
-    backgroundColor: Colors.primary,
-  },
-  tabBtnText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  tabBtnTextActive: {
-    color: Colors.text,
-    fontWeight: '700',
-  },
-  formContainer: {
-    paddingHorizontal: Spacing.md,
-    gap: Spacing.md,
-  },
-  inputGroup: {
-    gap: Spacing.xs,
-  },
-  inputLabel: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    fontWeight: '600',
-  },
-  input: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    color: Colors.text,
-    fontSize: FontSize.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#3A0000',
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.error,
-  },
-  errorText: {
-    flex: 1,
-    color: Colors.error,
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-  },
-  submitBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-  },
-  submitBtnText: {
-    color: Colors.text,
-    fontSize: FontSize.md,
-    fontWeight: '800',
-  },
-  forgotLink: {
-    alignSelf: 'flex-end',
-  },
-  forgotLinkText: {
-    color: Colors.primary,
-    fontSize: FontSize.sm,
-    fontWeight: '600',
-  },
-  forgotOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    padding: Spacing.md,
-  },
-  forgotCard: {
-    backgroundColor: Colors.background,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: Spacing.md,
-  },
-  forgotHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  forgotTitle: {
-    fontSize: FontSize.lg,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  forgotSub: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  forgotSentBox: {
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  forgotSentText: {
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-    textAlign: 'center',
   },
   // Profile
   profileHeader: {
@@ -882,6 +487,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   avatarWrapper: { position: 'relative' },
+  avatarStreakBadge: { position: 'absolute', top: -6, right: -8 },
   avatarRing: {
     width: 92,
     height: 92,

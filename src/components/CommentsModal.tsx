@@ -28,6 +28,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
+import { useModeration } from '../context/ModerationContext';
 import { usePremium } from '../context/PremiumContext';
 import { Comment } from '../types';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
@@ -54,7 +55,7 @@ interface Props {
 }
 
 export default function CommentsModal({ visible, postId, onClose }: Props) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const { isPremium } = usePremium();
   const insets = useSafeAreaInsets();
   const [comments, setComments] = useState<Comment[]>([]);
@@ -106,6 +107,7 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
         avatar: user.avatar,
         avatarPhoto: user.photoBase64 ?? null,
         verified: user.verified ?? false,
+        goldVerified: user.goldVerified ?? false,
         content,
         createdAt: new Date().toISOString(),
       });
@@ -174,13 +176,17 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
                   <View style={styles.commentBubble}>
                     <View style={styles.commentHeader}>
                       <Text style={styles.commentUsername}>{item.username}</Text>
-                      {(item.userId === user?.id
-                        ? ((user?.verified ?? false) && isPremium)
-                        : (item.verified ?? false)) && (
-                        <VerifiedBadge size={13} />
-                      )}
+                      {(() => {
+                        // Pour ses propres commentaires, on suit l'état live du compte
+                        // plutôt que la copie figée dans le doc du commentaire.
+                        const isMine = item.userId === user?.id;
+                        const gold = isMine ? (user?.goldVerified ?? false) : (item.goldVerified ?? false);
+                        const blue = isMine ? ((user?.verified ?? false) && isPremium) : (item.verified ?? false);
+                        if (!gold && !blue) return null;
+                        return <VerifiedBadge size={13} gold={gold} />;
+                      })()}
                       <Text style={styles.commentTime}>{formatTimeAgo(item.createdAt)}</Text>
-                      {user?.id === item.userId && (
+                      {(user?.id === item.userId || isAdmin) && (
                         <TouchableOpacity
                           onPress={() => handleDelete(item.id)}
                           style={styles.deleteCommentBtn}

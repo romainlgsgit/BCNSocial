@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,10 +19,10 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useNavigation } from '@react-navigation/native';
 import { collection, query, where, getDocs, doc, updateDoc, writeBatch, limit } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { saveLocalPlayerPhoto, useLocalPlayerPhotos } from '../utils/localPlayerPhotos';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import VerifiedBadge from '../components/VerifiedBadge';
 import { useFeaturedMatch } from '../context/MatchContext';
@@ -30,7 +30,6 @@ import { useProno, BetPrediction, MatchOdds, PronoMatch } from '../context/Prono
 import { useAuth } from '../context/AuthContext';
 import { useRatings } from '../context/RatingsContext';
 import { usePlayers } from '../context/PlayersContext';
-import { PLAYERS } from '../data/mockData';
 
 import { Team, Match, Player } from '../types';
 
@@ -263,7 +262,7 @@ function TeamEditor({ label, team, onChange }: {
 // ─── Edit Match Modal ──────────────────────────────────────────────────────────
 
 function EditMatchModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { featuredMatch, setFeaturedMatch, apiMatchId, setApiMatchId } = useFeaturedMatch();
+  const { featuredMatch, createManualMatch } = useFeaturedMatch();
 
   const init = featuredMatch ?? {
     id: 'custom',
@@ -281,24 +280,28 @@ function EditMatchModal({ visible, onClose }: { visible: boolean; onClose: () =>
   const [dateStr, setDateStr] = useState(init.date.slice(0, 10));
   const [timeStr, setTimeStr] = useState(init.date.slice(11, 16));
   const [venue, setVenue] = useState(init.venue);
-  const [matchIdInput, setMatchIdInput] = useState(apiMatchId ?? '');
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!dateStr.match(/^\d{4}-\d{2}-\d{2}$/) || !timeStr.match(/^\d{2}:\d{2}$/)) {
       Alert.alert('Format invalide', 'Date : AAAA-MM-JJ  ·  Heure : HH:MM');
       return;
     }
-    setFeaturedMatch({
-      id: featuredMatch?.id ?? 'custom',
-      homeTeam,
-      awayTeam,
-      date: `${dateStr}T${timeStr}:00`,
-      competition,
-      venue,
-      status: 'upcoming',
-    });
-    setApiMatchId(matchIdInput.trim() || null);
-    onClose();
+    setSaving(true);
+    try {
+      await createManualMatch({
+        homeTeam,
+        awayTeam,
+        date: `${dateStr}T${timeStr}:00`,
+        competition,
+        venue,
+      });
+      onClose();
+    } catch (e: any) {
+      Alert.alert('Erreur', String(e?.message || e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -311,8 +314,11 @@ function EditMatchModal({ visible, onClose }: { visible: boolean; onClose: () =>
               <Text style={styles.editCancelText}>Annuler</Text>
             </TouchableOpacity>
             <Text style={styles.editTitle}>Match à la une</Text>
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-              <Text style={styles.saveBtnText}>Enregistrer</Text>
+            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+              {saving
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.saveBtnText}>Enregistrer</Text>
+              }
             </TouchableOpacity>
           </View>
 
@@ -390,19 +396,12 @@ function EditMatchModal({ visible, onClose }: { visible: boolean; onClose: () =>
               placeholderTextColor={Colors.textMuted}
             />
 
-            {/* Score live */}
-            <Text style={styles.sectionLabel}>Score en direct (football-data.org)</Text>
-            <Text style={styles.inputLabel}>ID du match</Text>
-            <TextInput
-              style={styles.input}
-              value={matchIdInput}
-              onChangeText={setMatchIdInput}
-              placeholder="ex: 556720"
-              placeholderTextColor={Colors.textMuted}
-              keyboardType="number-pad"
-            />
-            <Text style={[styles.inputLabel, { marginTop: 6, lineHeight: 16 }]}>
-              Trouve l'ID avec : curl "https://api.football-data.org/v4/teams/81/matches?status=SCHEDULED&limit=1" -H "X-Auth-Token: TON_TOKEN"
+            {/* Info */}
+            <Text style={styles.sectionLabel}>Info</Text>
+            <Text style={[styles.inputLabel, { textTransform: 'none', letterSpacing: 0, lineHeight: 16 }]}>
+              Ce match sera créé comme "match manuel" et sera visible par tous les utilisateurs de l'app.
+              Utilise ensuite les actions sous la carte (dans le Panel Admin) pour le passer EN COURS,
+              mettre à jour le score, le terminer, ou revenir au match football-data.
             </Text>
 
             <View style={{ height: 60 }} />
@@ -410,6 +409,140 @@ function EditMatchModal({ visible, onClose }: { visible: boolean; onClose: () =>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+// ─── Manual Match Control Panel ────────────────────────────────────────────────
+// Pilotage du match manuel (Firestore, partagé par tous) : passer EN COURS,
+// mettre à jour le score, terminer (→ retour auto au football-data), réinitialiser.
+
+function ManualMatchPanel() {
+  const { matchOverrideActive, featuredMatch, setManualLive, updateManualScore, finishManualMatch, resetMatchOverride } = useFeaturedMatch();
+  const [homeScore, setHomeScore] = useState('0');
+  const [awayScore, setAwayScore] = useState('0');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (matchOverrideActive && featuredMatch) {
+      setHomeScore(String(featuredMatch.homeScore ?? 0));
+      setAwayScore(String(featuredMatch.awayScore ?? 0));
+    }
+  }, [matchOverrideActive, featuredMatch?.status, featuredMatch?.homeScore, featuredMatch?.awayScore]);
+
+  if (!matchOverrideActive || !featuredMatch) {
+    return (
+      <View style={styles.manualInfoBox}>
+        <Text style={styles.manualInfoText}>
+          ℹ️ Aucun match manuel actif — le match à la une vient automatiquement d'ESPN.
+        </Text>
+      </View>
+    );
+  }
+
+  const parseScore = () => {
+    const h = parseInt(homeScore, 10);
+    const a = parseInt(awayScore, 10);
+    if (isNaN(h) || isNaN(a) || h < 0 || a < 0) return null;
+    return { h, a };
+  };
+
+  const handleSetLive = () => {
+    Alert.alert('Marquer EN COURS ?', `${featuredMatch.homeTeam.name} vs ${featuredMatch.awayTeam.name}`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Confirmer', onPress: async () => { setBusy(true); try { await setManualLive(); } finally { setBusy(false); } } },
+    ]);
+  };
+
+  const handleUpdateScore = async () => {
+    const s = parseScore();
+    if (!s) { Alert.alert('Score invalide'); return; }
+    setBusy(true);
+    try { await updateManualScore(s.h, s.a); } finally { setBusy(false); }
+  };
+
+  const handleFinish = () => {
+    const s = parseScore();
+    if (!s) { Alert.alert('Score invalide'); return; }
+    Alert.alert('Terminer le match ?', `Score final : ${s.h} - ${s.a}\nL'app reviendra automatiquement au match football-data après quelques secondes.`, [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Confirmer',
+        onPress: async () => {
+          setBusy(true);
+          try { await finishManualMatch(s.h, s.a); } finally { setBusy(false); }
+        },
+      },
+    ]);
+  };
+
+  const handleReset = () => {
+    Alert.alert(
+      'Réinitialiser ?',
+      'Le match manuel sera retiré immédiatement. Tous les utilisateurs reverront le match football-data.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Réinitialiser', style: 'destructive', onPress: async () => { setBusy(true); try { await resetMatchOverride(); } finally { setBusy(false); } } },
+      ]
+    );
+  };
+
+  const statusLabel = featuredMatch.status === 'live' ? '🔴 EN COURS' : featuredMatch.status === 'finished' ? '✅ TERMINÉ' : '🟢 À VENIR';
+
+  return (
+    <View style={styles.manualPanel}>
+      <View style={styles.manualHeaderRow}>
+        <Text style={styles.manualBadge}>🔧 MATCH MANUEL · partagé avec tous</Text>
+        <Text style={styles.manualStatus}>{statusLabel}</Text>
+      </View>
+
+      {featuredMatch.status !== 'upcoming' && (
+        <View style={styles.oddsInputRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.oddsInputLabel}>{featuredMatch.homeTeam.shortName}</Text>
+            <TextInput
+              style={styles.oddsInput}
+              value={homeScore}
+              onChangeText={setHomeScore}
+              keyboardType="number-pad"
+              maxLength={2}
+              editable={featuredMatch.status === 'live'}
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.oddsInputLabel}>{featuredMatch.awayTeam.shortName}</Text>
+            <TextInput
+              style={styles.oddsInput}
+              value={awayScore}
+              onChangeText={setAwayScore}
+              keyboardType="number-pad"
+              maxLength={2}
+              editable={featuredMatch.status === 'live'}
+            />
+          </View>
+        </View>
+      )}
+
+      {featuredMatch.status === 'upcoming' && (
+        <TouchableOpacity style={styles.actionBtnLive} onPress={handleSetLive} activeOpacity={0.8} disabled={busy}>
+          <Text style={styles.actionBtnText}>🔴 Marquer comme EN COURS</Text>
+        </TouchableOpacity>
+      )}
+
+      {featuredMatch.status === 'live' && (
+        <>
+          <TouchableOpacity style={styles.saveOddsBtn} onPress={handleUpdateScore} activeOpacity={0.8} disabled={busy}>
+            <Text style={styles.saveOddsBtnText}>💾 Mettre à jour le score</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtnFinish} onPress={handleFinish} activeOpacity={0.8} disabled={busy}>
+            <Text style={styles.actionBtnText}>✅ Terminer le match</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
+      <TouchableOpacity style={styles.resetBtn} onPress={handleReset} activeOpacity={0.8} disabled={busy}>
+        <Text style={styles.resetBtnText}>↩️ Réinitialiser (revenir à football-data)</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -606,12 +739,12 @@ function SettlePastMatchModal({ visible, onClose }: { visible: boolean; onClose:
             Écrit le résultat dans matchResults/&#123;matchId&#125; pour déclencher le règlement des paris au prochain démarrage de l'app.
           </Text>
           <View>
-            <Text style={styles.inputLabel}>ID du match (football-data.org)</Text>
+            <Text style={styles.inputLabel}>ID du match (ESPN — visible dans l'URL espn.com/soccer/match/_/gameId/…)</Text>
             <TextInput
               style={styles.input}
               value={matchIdInput}
               onChangeText={setMatchIdInput}
-              placeholder="ex: 544532"
+              placeholder="ex: 401882913"
               placeholderTextColor={Colors.textMuted}
               keyboardType="number-pad"
             />
@@ -655,7 +788,7 @@ function SettlePastMatchModal({ visible, onClose }: { visible: boolean; onClose:
 function CertificationModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ uid: string; username: string; verified: boolean } | null>(null);
+  const [result, setResult] = useState<{ uid: string; username: string; verified: boolean; goldVerified: boolean } | null>(null);
   const [toggling, setToggling] = useState(false);
 
   const handleSearch = async () => {
@@ -670,20 +803,27 @@ function CertificationModal({ visible, onClose }: { visible: boolean; onClose: (
         Alert.alert('Introuvable', `Aucun compte avec le pseudo "${search.trim()}"`);
       } else {
         const d = snap.docs[0];
-        setResult({ uid: d.id, username: d.data().username, verified: d.data().verified ?? false });
+        setResult({
+          uid: d.id,
+          username: d.data().username,
+          verified: d.data().verified ?? false,
+          goldVerified: d.data().goldVerified ?? false,
+        });
       }
     } finally {
       setLoading(false);
     }
   };
 
+  // On ne touche jamais à `verified` (piloté par le premium) : retirer l'or
+  // redonne donc automatiquement le badge bleu si l'abonnement est actif.
   const handleToggle = async () => {
     if (!result) return;
     setToggling(true);
-    const newVerified = !result.verified;
+    const newGold = !result.goldVerified;
     try {
       // Mettre à jour le doc utilisateur
-      await updateDoc(doc(db, 'users', result.uid), { verified: newVerified });
+      await updateDoc(doc(db, 'users', result.uid), { goldVerified: newGold });
 
       // Mettre à jour tous les posts de l'utilisateur
       const postsSnap = await getDocs(
@@ -691,11 +831,11 @@ function CertificationModal({ visible, onClose }: { visible: boolean; onClose: (
       );
       if (!postsSnap.empty) {
         const batch = writeBatch(db);
-        postsSnap.docs.forEach(d => batch.update(d.ref, { verified: newVerified }));
+        postsSnap.docs.forEach(d => batch.update(d.ref, { goldVerified: newGold }));
         await batch.commit();
       }
 
-      setResult({ ...result, verified: newVerified });
+      setResult({ ...result, goldVerified: newGold });
     } finally {
       setToggling(false);
     }
@@ -706,7 +846,7 @@ function CertificationModal({ visible, onClose }: { visible: boolean; onClose: (
       <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
         <View style={styles.editHeader}>
           <View style={{ width: 60 }} />
-          <Text style={styles.editTitle}>Certifications</Text>
+          <Text style={styles.editTitle}>Certification or</Text>
           <TouchableOpacity onPress={onClose} style={{ width: 60, alignItems: 'flex-end' }}>
             <Text style={styles.editCancelText}>Fermer</Text>
           </TouchableOpacity>
@@ -714,7 +854,8 @@ function CertificationModal({ visible, onClose }: { visible: boolean; onClose: (
 
         <ScrollView contentContainerStyle={{ padding: Spacing.md, gap: Spacing.lg }}>
           <Text style={{ color: Colors.textSecondary, fontSize: FontSize.sm, lineHeight: 20 }}>
-            Recherche un utilisateur par son pseudo exact pour lui accorder ou retirer la certification.
+            Recherche un utilisateur par son pseudo exact pour lui accorder ou retirer la certification or.
+            Le badge or remplace le badge bleu ; le premium et ses avantages ne sont pas affectés.
           </Text>
 
           {/* Search */}
@@ -750,15 +891,19 @@ function CertificationModal({ visible, onClose }: { visible: boolean; onClose: (
                 <View>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={styles.certResultName}>{result.username}</Text>
-                    {result.verified && <VerifiedBadge size={16} />}
+                    {(result.goldVerified || result.verified) && (
+                      <VerifiedBadge size={16} gold={result.goldVerified} />
+                    )}
                   </View>
                   <Text style={{ color: Colors.textMuted, fontSize: FontSize.xs, marginTop: 2 }}>
-                    {result.verified ? 'Compte certifié' : 'Compte non certifié'}
+                    {result.goldVerified
+                      ? 'Certifié or'
+                      : result.verified ? 'Certifié bleu (premium)' : 'Non certifié'}
                   </Text>
                 </View>
               </View>
               <TouchableOpacity
-                style={[styles.certToggleBtn, result.verified ? styles.certToggleBtnRevoke : styles.certToggleBtnGrant]}
+                style={[styles.certToggleBtn, result.goldVerified ? styles.certToggleBtnRevoke : styles.certToggleBtnGrant]}
                 onPress={handleToggle}
                 disabled={toggling}
               >
@@ -766,7 +911,7 @@ function CertificationModal({ visible, onClose }: { visible: boolean; onClose: (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <Text style={styles.certToggleText}>
-                    {result.verified ? 'Retirer' : 'Certifier'}
+                    {result.goldVerified ? 'Retirer' : 'Certifier or'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -822,6 +967,7 @@ const POS_LABELS: Record<string, string> = {
 function LineupModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const { setLineup, getLineup } = useRatings();
   const { monthlyMatches } = useFeaturedMatch();
+  const { players } = usePlayers();
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -846,7 +992,7 @@ function LineupModal({ visible, onClose }: { visible: boolean; onClose: () => vo
 
   const handleValidate = () => {
     if (!selectedMatchId) return;
-    const lineup = PLAYERS.filter((p) => selectedIds.has(p.id));
+    const lineup = players.filter((p) => selectedIds.has(p.id));
     if (lineup.length === 0) {
       Alert.alert('Aucun joueur sélectionné', 'Sélectionne au moins 1 joueur.');
       return;
@@ -862,7 +1008,7 @@ function LineupModal({ visible, onClose }: { visible: boolean; onClose: () => vo
   const playersByPos = POS_ORDER.map((pos) => ({
     pos,
     label: POS_LABELS[pos],
-    players: PLAYERS.filter((p) => p.position === pos),
+    players: players.filter((p) => p.position === pos),
   }));
 
   const selectedMatch = finishedMatches.find((m) => m.id === selectedMatchId);
@@ -1034,7 +1180,7 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
   };
 
   const [uploading, setUploading] = useState(false);
-  const { map: localPhotos, refresh: refreshPhotos } = useLocalPlayerPhotos();
+  const [saving, setSaving] = useState(false);
 
   const pickPhoto = async () => {
     const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1060,10 +1206,17 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
     try {
       setUploading(true);
       const uri = result.assets[0].uri;
-      const playerId = form.id || `p_${Date.now()}`;
-      const localPath = await saveLocalPlayerPhoto(playerId, uri);
-      setForm(f => ({ ...f, id: playerId, photoUrl: localPath }));
-      refreshPhotos();
+
+      // Même système que les photos de profil et de posts : redimensionner
+      // en petit avatar et stocker en base64 directement dans Firestore, donc
+      // synchronisé et visible par tout le monde (pas seulement cet appareil).
+      const resized = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 300 } }],
+        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+
+      setForm(f => ({ ...f, photoBase64: resized.base64 }));
     } catch (e: any) {
       Alert.alert('Erreur', String(e?.message || e));
     } finally {
@@ -1072,29 +1225,53 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
   };
 
   const handleSave = async () => {
+    if (saving) return;
+    if (uploading) { Alert.alert('Photo en cours de traitement', 'Attends un instant avant d\'enregistrer.'); return; }
     if (!form.name.trim()) { Alert.alert('Nom manquant'); return; }
     if (!form.number || form.number < 1) { Alert.alert('Numéro invalide'); return; }
 
-    // Ne pas stocker les chemins locaux (file://) dans Firestore
-    const isLocal = (form.photoUrl ?? '').startsWith('file://');
-    const firestoreForm = { ...form, photoUrl: isLocal ? '' : (form.photoUrl ?? '') };
+    setSaving(true);
+    // Si l'écriture traîne (réseau faible/coupé), le bouton reste bloqué en
+    // "Enregistrement..." au lieu de sembler avoir réussi silencieusement —
+    // on avertit explicitement après quelques secondes plutôt que de laisser
+    // planer le doute sur ce qui se passe réellement.
+    const slowTimer = setTimeout(() => {
+      Alert.alert(
+        'Ça prend du temps…',
+        'L\'enregistrement n\'est toujours pas confirmé par le serveur. Vérifie ta connexion — le changement n\'est pas encore garanti tant que ça n\'a pas abouti.'
+      );
+    }, 6000);
 
     try {
       if (editingPlayer) {
-        await updatePlayer({ ...editingPlayer, ...firestoreForm });
+        await updatePlayer({ ...editingPlayer, ...form });
       } else {
-        await addPlayer(firestoreForm);
+        await addPlayer(form);
       }
+      clearTimeout(slowTimer);
       closeForm();
     } catch (e: any) {
-      Alert.alert('Erreur Firebase', String(e?.message || e));
+      clearTimeout(slowTimer);
+      Alert.alert('Erreur Firebase', `${e?.code ? `[${e.code}] ` : ''}${String(e?.message || e)}`);
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDelete = (player: Player) => {
     Alert.alert(`Supprimer ${player.name} ?`, 'Cette action est irréversible.', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deletePlayer(player.id) },
+      {
+        text: 'Supprimer',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deletePlayer(player.id);
+          } catch (e: any) {
+            Alert.alert('Erreur Firebase', `${e?.code ? `[${e.code}] ` : ''}${String(e?.message || e)}`);
+          }
+        },
+      },
     ]);
   };
 
@@ -1107,7 +1284,9 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
     players: filtered.filter(p => p.position === pos),
   })).filter(g => g.players.length > 0);
 
-  const photoSource = form.photoUrl ? { uri: form.photoUrl } : null;
+  const photoSource = form.photoBase64
+    ? { uri: `data:image/jpeg;base64,${form.photoBase64}` }
+    : form.photoUrl ? { uri: form.photoUrl } : null;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={view === 'form' ? closeForm : onClose}>
@@ -1125,8 +1304,12 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
             )}
             <Text style={styles.editTitle}>{view === 'form' ? (editingPlayer ? 'Modifier' : 'Nouveau joueur') : 'Joueurs'}</Text>
             {view === 'form' ? (
-              <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                <Text style={styles.saveBtnText}>Enregistrer</Text>
+              <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving || uploading}>
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.saveBtnText}>Enregistrer</Text>
+                )}
               </TouchableOpacity>
             ) : (
               <TouchableOpacity onPress={onClose} style={{ width: 60, alignItems: 'flex-end' }}>
@@ -1158,7 +1341,9 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
                       <Text style={lStyles.posHeaderText}>{label}  ({grpPlayers.length})</Text>
                     </View>
                     {grpPlayers.map(player => {
-                      const resolvedPhoto = localPhotos[player.id] || player.photoUrl;
+                      const resolvedPhoto = player.photoBase64
+                        ? `data:image/jpeg;base64,${player.photoBase64}`
+                        : player.photoUrl;
                       const photoSrc = resolvedPhoto ? { uri: resolvedPhoto } : null;
                       return (
                         <View key={player.id} style={pStyles.playerRow}>
@@ -1290,12 +1475,35 @@ function PlayersManageModal({ visible, onClose }: { visible: boolean; onClose: (
 export default function AdminScreen() {
   const navigation = useNavigation();
   const { featuredMatch } = useFeaturedMatch();
+  const { resetAllPlayerRatings } = useRatings();
   const [showEditMatch, setShowEditMatch] = useState(false);
   const [showPronoManage, setShowPronoManage] = useState(false);
   const [showSettlePast, setShowSettlePast] = useState(false);
   const [showCertification, setShowCertification] = useState(false);
   const [showLineup, setShowLineup] = useState(false);
   const [showPlayers, setShowPlayers] = useState(false);
+
+  const handleResetRatings = () => {
+    Alert.alert(
+      'Réinitialiser les notes ?',
+      'Toutes les notes de tous les joueurs seront remises à zéro. Cette action est irréversible.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Réinitialiser',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await resetAllPlayerRatings();
+              Alert.alert('Notes réinitialisées', 'Les notes de tous les joueurs ont été remises à zéro.');
+            } catch (e: any) {
+              Alert.alert('Erreur Firebase', `${e?.code ? `[${e.code}] ` : ''}${String(e?.message || e)}`);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <View style={styles.root}>
@@ -1337,15 +1545,18 @@ export default function AdminScreen() {
           </View>
         </TouchableOpacity>
 
+        <ManualMatchPanel />
+
         <Text style={styles.sectionTitleMain}>Gestion du contenu</Text>
         {[
           { icon: '🏆', title: 'Gestion des pronos', desc: 'Définir les cotes et valider les résultats', onPress: () => setShowPronoManage(true) },
           { icon: '🔧', title: 'Régler un match passé', desc: 'Enregistrer le résultat d\'un match déjà terminé', onPress: () => setShowSettlePast(true) },
-          { icon: '✅', title: 'Certifications', desc: 'Accorder ou retirer le badge certifié', onPress: () => setShowCertification(true) },
+          { icon: '🥇', title: 'Certification or', desc: 'Accorder ou retirer le badge certifié or', onPress: () => setShowCertification(true) },
           { icon: '📰', title: 'Actualités', desc: 'Publier et modifier les articles', onPress: undefined },
           { icon: '📋', title: 'Compo du match', desc: 'Valider la composition après chaque match', onPress: () => setShowLineup(true) },
           { icon: '👥', title: 'Joueurs', desc: 'Ajouter, modifier ou supprimer des joueurs', onPress: () => setShowPlayers(true) },
           { icon: '🪙', title: 'Pièces', desc: 'Attribuer ou retirer des pièces aux membres', onPress: undefined },
+          { icon: '🔄', title: 'Réinitialiser les notes', desc: 'Remettre à zéro les notes de tous les joueurs', onPress: handleResetRatings },
         ].map(s => (
           <TouchableOpacity key={s.title} style={styles.card} activeOpacity={0.75} onPress={s.onPress}>
             <View style={styles.cardIcon}>
@@ -1399,6 +1610,16 @@ const styles = StyleSheet.create({
   featuredEmpty: { color: 'rgba(255,255,255,0.4)', textAlign: 'center', fontSize: FontSize.sm, paddingVertical: 8 },
   featuredBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.md, backgroundColor: '#181818', borderTopWidth: 1, borderTopColor: '#2A2A2A' },
   featuredEditLabel: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '600' },
+
+  // Manual match panel
+  manualInfoBox: { backgroundColor: '#151515', borderRadius: BorderRadius.md, padding: Spacing.md, borderWidth: 1, borderColor: '#2A2A2A', marginBottom: Spacing.lg },
+  manualInfoText: { color: Colors.textSecondary, fontSize: FontSize.xs, lineHeight: 17 },
+  manualPanel: { backgroundColor: '#151515', borderRadius: BorderRadius.lg, padding: Spacing.md, borderWidth: 1, borderColor: Colors.gold + '55', marginBottom: Spacing.lg, gap: 10 },
+  manualHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  manualBadge: { color: Colors.gold, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 },
+  manualStatus: { color: Colors.text, fontSize: FontSize.sm, fontWeight: '800' },
+  resetBtn: { backgroundColor: '#2A2A2A', borderRadius: BorderRadius.md, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: '#3A3A3A' },
+  resetBtnText: { color: Colors.textSecondary, fontSize: FontSize.sm, fontWeight: '700' },
 
   // Cards
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#151515', borderRadius: BorderRadius.md, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: '#222' },

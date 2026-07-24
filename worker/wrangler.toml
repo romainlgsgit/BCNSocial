@@ -1,0 +1,32 @@
+name = "barca-live-sentinel"
+main = "src/index.js"
+compatibility_date = "2026-07-21"
+
+# URL publique activée : l'app appelle POST /verify-email pour l'envoi du mail de
+# confirmation en français. Le cron (sentinelle) continue de tourner en parallèle.
+workers_dev = true
+
+# Toutes les minutes. Le worker sort immédiatement s'il n'y a pas de match dans la
+# fenêtre (une simple lecture KV), donc hors match le coût est quasi nul.
+[triggers]
+crons = ["* * * * *"]
+
+# État du worker : calendrier, dernier score connu, jeton d'auth.
+# Volontairement dans KV et non dans Firestore, pour ne consommer AUCUNE lecture
+# du quota Firestore partagé par le reste de l'app.
+[[kv_namespaces]]
+binding = "STATE"
+id = "5a38ebce847c4d7799100fa81d490a22"
+
+[vars]
+PROJECT_ID = "barca-app-b0795"
+
+# Secrets à définir avec `wrangler secret put <NOM>` (jamais dans ce fichier) :
+#   FIREBASE_API_KEY  — clé web Firebase (déjà publique côté app)
+#   BOT_EMAIL         — compte Firebase Auth dédié au worker
+#   BOT_PASSWORD      — son mot de passe
+#
+#   Pour l'envoi du mail de confirmation en français (POST /verify-email) :
+#   RESEND_API_KEY    — clé API Resend (envoi depuis legrosromain.fr)
+#   SA_CLIENT_EMAIL   — client_email du compte de service Firebase
+#   SA_PRIVATE_KEY    — private_key du compte de service (avec les \n, tel quel du JSON)

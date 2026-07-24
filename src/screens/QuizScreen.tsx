@@ -19,34 +19,11 @@ import {
   PERFECT_BONUS,
   COINS_PER_CORRECT,
 } from '../context/QuizContext';
-import { getLevelInfo } from '../utils/levels';
 import AdBanner from '../components/AdBanner';
+import StreakBadge from '../components/StreakBadge';
+import { STREAK_TIERS, tierForStreak, nextTierForStreak, daysToNextTier } from '../utils/streakBadges';
 
 type Phase = 'intro' | 'playing' | 'result';
-
-// ─── Carte de progression de niveau ─────────────────────────────────────────────
-function LevelCard({ points }: { points: number }) {
-  const { tier, nextTier, progress, pointsForNextLevel } = getLevelInfo(points);
-  return (
-    <View style={styles.levelCard}>
-      <View style={styles.levelHeader}>
-        <Text style={styles.levelEmoji}>{tier.emoji}</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.levelTitle}>Niv. {tier.level} · {tier.title}</Text>
-          <Text style={styles.levelPoints}>{points} pts</Text>
-        </View>
-      </View>
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
-      </View>
-      <Text style={styles.levelNext}>
-        {nextTier
-          ? `Encore ${pointsForNextLevel} pts → ${nextTier.title}`
-          : 'Niveau maximum atteint 👑'}
-      </Text>
-    </View>
-  );
-}
 
 // ─── Guest ───────────────────────────────────────────────────────────────────
 function GuestScreen({ onNavigateToProfile }: { onNavigateToProfile: () => void }) {
@@ -56,8 +33,8 @@ function GuestScreen({ onNavigateToProfile }: { onNavigateToProfile: () => void 
         <Text style={styles.guestEmoji}>🧠</Text>
         <Text style={styles.guestTitle}>Quiz du jour !</Text>
         <Text style={styles.guestText}>
-          Teste tes connaissances sur le Barça chaque jour, gagne des points, grimpe les niveaux
-          et garde ta série en vie — même en pleine intersaison.
+          Teste tes connaissances sur le Barça chaque jour, gagne des points, débloque les badges
+          de série et garde ta série en vie — même en pleine intersaison.
         </Text>
         <TouchableOpacity style={styles.guestBtn} onPress={onNavigateToProfile} activeOpacity={0.85}>
           <Text style={styles.guestBtnText}>Créer un compte</Text>
@@ -76,20 +53,22 @@ interface Props {
 }
 
 export default function QuizScreen({ onNavigateToProfile }: Props) {
-  const { isAuthenticated, user } = useAuth();
-  const { questions, state, hasPlayedToday, submitQuiz } = useQuiz();
+  const { isAuthenticated } = useAuth();
+  const { questions, state, hasPlayedToday, currentStreak, submitQuiz } = useQuiz();
   const insets = useSafeAreaInsets();
 
   const [phase, setPhase] = useState<Phase>('intro');
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
-  const [correctCount, setCorrectCount] = useState(0);
+  // Réponses données, dans l'ordre des questions. La correction n'est révélée
+  // qu'à la fin : pendant le quiz on mémorise sans jamais afficher le verdict.
+  const [answers, setAnswers] = useState<number[]>([]);
   const [reward, setReward] = useState<QuizReward | null>(null);
 
   const resetAndStart = () => {
     setCurrent(0);
     setSelected(null);
-    setCorrectCount(0);
+    setAnswers([]);
     setReward(null);
     setPhase('playing');
   };
@@ -99,14 +78,19 @@ export default function QuizScreen({ onNavigateToProfile }: Props) {
   const answered = selected !== null;
 
   const handleSelect = (index: number) => {
-    if (answered) return;
-    setSelected(index);
-    if (index === question.correctIndex) setCorrectCount(c => c + 1);
+    setSelected(index); // modifiable tant qu'on n'a pas validé
   };
 
   const handleNext = async () => {
+    if (selected === null) return;
+    const nextAnswers = [...answers, selected];
+    setAnswers(nextAnswers);
+
     if (isLast) {
-      const finalCorrect = correctCount; // déjà à jour (incrémenté au tap)
+      const finalCorrect = nextAnswers.reduce(
+        (acc, a, i) => acc + (a === questions[i].correctIndex ? 1 : 0),
+        0,
+      );
       const r = await submitQuiz(finalCorrect);
       setReward(r);
       setPhase('result');
@@ -133,14 +117,12 @@ export default function QuizScreen({ onNavigateToProfile }: Props) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" />
-      <Header streak={state.streak} />
+      <Header streak={currentStreak} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {/* ─── INTRO ─── */}
         {phase === 'intro' && (
           <>
-            <LevelCard points={user!.points} />
-
             {hasPlayedToday ? (
               <View style={styles.doneCard}>
                 <Text style={styles.doneEmoji}>✅</Text>
@@ -181,8 +163,10 @@ export default function QuizScreen({ onNavigateToProfile }: Props) {
               </View>
             )}
 
+            <StreakProgressCard streak={currentStreak} />
+
             <View style={styles.statsRow}>
-              <StatBox icon="flame" color={Colors.draw} value={state.streak} label="Série" />
+              <StatBox icon="flame" color={Colors.draw} value={currentStreak} label="Série" />
               <StatBox icon="trophy" color={Colors.gold} value={state.bestStreak} label="Record" />
               <StatBox
                 icon="checkmark-circle"
@@ -214,43 +198,39 @@ export default function QuizScreen({ onNavigateToProfile }: Props) {
 
             <Text style={styles.questionText}>{question.question}</Text>
 
+            {/* Aucune correction ici : on marque seulement le choix de l'utilisateur.
+                Le verdict et les bonnes réponses arrivent au récapitulatif final. */}
             <View style={styles.optionsList}>
               {question.options.map((opt, i) => {
-                const isCorrect = i === question.correctIndex;
                 const isPicked = selected === i;
-                const showCorrect = answered && isCorrect;
-                const showWrong = answered && isPicked && !isCorrect;
                 return (
                   <TouchableOpacity
                     key={i}
-                    style={[
-                      styles.option,
-                      showCorrect && styles.optionCorrect,
-                      showWrong && styles.optionWrong,
-                    ]}
+                    style={[styles.option, isPicked && styles.optionPicked]}
                     onPress={() => handleSelect(i)}
-                    activeOpacity={answered ? 1 : 0.7}
+                    activeOpacity={0.7}
                   >
-                    <Text style={[styles.optionText, (showCorrect || showWrong) && styles.optionTextActive]}>{opt}</Text>
-                    {answered && isCorrect && (
-                      <Ionicons name="checkmark-circle" size={20} color={Colors.win} />
-                    )}
-                    {answered && isPicked && !isCorrect && (
-                      <Ionicons name="close-circle" size={20} color={Colors.loss} />
-                    )}
+                    <Text style={[styles.optionText, isPicked && styles.optionTextActive]}>{opt}</Text>
+                    <View style={[styles.radio, isPicked && styles.radioOn]}>
+                      {isPicked && <View style={styles.radioDot} />}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
             </View>
 
-            {answered && (
-              <TouchableOpacity style={styles.nextBtn} onPress={handleNext} activeOpacity={0.85}>
-                <Text style={styles.nextBtnText}>
-                  {isLast ? 'Voir mon résultat' : 'Question suivante'}
-                </Text>
-                <Ionicons name="arrow-forward" size={18} color="#fff" />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[styles.nextBtn, !answered && styles.nextBtnDisabled]}
+              onPress={handleNext}
+              activeOpacity={0.85}
+              disabled={!answered}
+            >
+              <Text style={styles.nextBtnText}>
+                {isLast ? 'Valider mes réponses' : 'Question suivante'}
+              </Text>
+              <Ionicons name="arrow-forward" size={18} color="#fff" />
+            </TouchableOpacity>
+            {!answered && <Text style={styles.pickHint}>Choisis une réponse pour continuer</Text>}
           </View>
         )}
 
@@ -291,11 +271,51 @@ export default function QuizScreen({ onNavigateToProfile }: Props) {
               </View>
             </LinearGradient>
 
-            <LevelCard points={user!.points} />
+            {reward.unlockedTierId && (
+              <View style={styles.unlockCard}>
+                <StreakBadge streak={reward.streak} size={54} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.unlockTitle}>Nouveau badge débloqué !</Text>
+                  <Text style={styles.unlockText}>
+                    {tierForStreak(reward.streak)?.name} · série de {reward.streak} jours.
+                    Il s'affiche sur ta photo de profil.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <StreakProgressCard streak={reward.streak} />
+
+            {/* ─── Correction, révélée seulement maintenant ─── */}
+            <View style={styles.reviewCard}>
+              <Text style={styles.reviewTitle}>Correction</Text>
+              {questions.map((q, i) => {
+                const given = answers[i];
+                const good = given === q.correctIndex;
+                return (
+                  <View key={q.id} style={styles.reviewItem}>
+                    <View style={styles.reviewHead}>
+                      <View style={[styles.reviewMark, { backgroundColor: good ? Colors.win : Colors.loss }]}>
+                        <Ionicons name={good ? 'checkmark' : 'close'} size={13} color="#fff" />
+                      </View>
+                      <Text style={styles.reviewQuestion}>{q.question}</Text>
+                    </View>
+                    {!good && (
+                      <Text style={styles.reviewGiven}>
+                        Ta réponse : <Text style={styles.reviewGivenBad}>{q.options[given]}</Text>
+                      </Text>
+                    )}
+                    <Text style={styles.reviewAnswer}>
+                      Bonne réponse : <Text style={styles.reviewAnswerGood}>{q.options[q.correctIndex]}</Text>
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
 
             <View style={styles.doneCard}>
               <Text style={styles.doneSub}>
-                Reviens demain pour un nouveau quiz et garder ta série en vie 🔥
+                Nouveau quiz demain à 9h — reviens pour garder ta série en vie 🔥
               </Text>
             </View>
 
@@ -324,10 +344,79 @@ function Header({ streak }: { streak: number }) {
         <Ionicons name="bulb" size={20} color={Colors.gold} />
         <Text style={styles.headerTitle}>Quiz</Text>
       </View>
-      {streak > 0 && (
-        <View style={styles.streakChip}>
-          <Text style={styles.streakText}>🔥 {streak}</Text>
+      <View style={styles.headerRight}>
+        {streak > 0 && (
+          <View style={styles.streakChip}>
+            <Text style={styles.streakText}>🔥 {streak}</Text>
+          </View>
+        )}
+        <StreakBadge streak={streak} size={30} />
+      </View>
+    </View>
+  );
+}
+
+/** Palier en cours + jours restants avant le suivant. */
+function StreakProgressCard({ streak }: { streak: number }) {
+  const tier = tierForStreak(streak);
+  const next = nextTierForStreak(streak);
+  const remaining = daysToNextTier(streak);
+
+  const from = tier?.days ?? 0;
+  const progress = next ? Math.max(0, Math.min(1, (streak - from) / (next.days - from))) : 1;
+
+  return (
+    <View style={styles.badgeCard}>
+      <View style={styles.badgeCardHead}>
+        {tier ? (
+          <StreakBadge streak={streak} size={44} />
+        ) : (
+          <View style={styles.badgeEmpty}>
+            <Ionicons name="lock-closed" size={18} color={Colors.textMuted} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.badgeCardTitle}>
+            {tier ? `Badge ${tier.name}` : 'Aucun badge'}
+          </Text>
+          <Text style={styles.badgeCardSub}>
+            {next
+              ? `Encore ${remaining} jour${remaining > 1 ? 's' : ''} → badge ${next.name}`
+              : 'Palier maximum atteint 👑'}
+          </Text>
         </View>
+      </View>
+
+      <View style={styles.badgeTrack}>
+        <View
+          style={[
+            styles.badgeFill,
+            { width: `${Math.round(progress * 100)}%`, backgroundColor: next?.border ?? Colors.gold },
+          ]}
+        />
+      </View>
+
+      {/* Tous les paliers, pour montrer ce qu'il reste à viser */}
+      <View style={styles.tierRow}>
+        {STREAK_TIERS.map(t => {
+          const owned = streak >= t.days;
+          return (
+            <View key={t.id} style={styles.tierItem}>
+              <View style={{ opacity: owned ? 1 : 0.25 }}>
+                <StreakBadge streak={t.days} size={22} showNumber={false} tier={t} />
+              </View>
+              <Text style={[styles.tierDays, owned && { color: Colors.text, fontWeight: '800' }]}>
+                {t.days}j
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {streak === 0 && (
+        <Text style={styles.badgeWarn}>
+          Une série s'arrête dès qu'un jour est manqué — et le badge disparaît avec elle.
+        </Text>
       )}
     </View>
   );
@@ -366,6 +455,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
   streakChip: {
     backgroundColor: Colors.surface,
@@ -376,28 +466,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.draw,
   },
   streakText: { fontSize: FontSize.sm, fontWeight: '700', color: Colors.draw },
-
-  // Level card
-  levelCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    padding: Spacing.md,
-    gap: Spacing.sm,
-  },
-  levelHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  levelEmoji: { fontSize: 30 },
-  levelTitle: { fontSize: FontSize.md, fontWeight: '800', color: Colors.text },
-  levelPoints: { fontSize: FontSize.xs, color: Colors.gold, fontWeight: '700', marginTop: 2 },
-  progressTrack: {
-    height: 8,
-    backgroundColor: Colors.surfaceLight,
-    borderRadius: BorderRadius.full,
-    overflow: 'hidden',
-  },
-  progressFill: { height: '100%', backgroundColor: Colors.gold, borderRadius: BorderRadius.full },
-  levelNext: { fontSize: FontSize.xs, color: Colors.textSecondary, fontWeight: '600' },
 
   // Intro
   introCard: {
@@ -523,8 +591,72 @@ const styles = StyleSheet.create({
   },
   optionCorrect: { backgroundColor: Colors.win + '22', borderColor: Colors.win },
   optionWrong: { backgroundColor: Colors.loss + '22', borderColor: Colors.loss },
+  optionPicked: { backgroundColor: Colors.primary + '22', borderColor: Colors.primary },
   optionText: { fontSize: FontSize.md, color: Colors.text, fontWeight: '600', flex: 1 },
   optionTextActive: { fontWeight: '700' },
+  radio: {
+    width: 20, height: 20, borderRadius: 10, borderWidth: 2,
+    borderColor: Colors.border, alignItems: 'center', justifyContent: 'center',
+  },
+  radioOn: { borderColor: Colors.primary },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
+  pickHint: { fontSize: FontSize.xs, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.sm },
+
+  // Carte de progression des badges
+  badgeCard: {
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, borderWidth: 1,
+    borderColor: Colors.border, padding: Spacing.md, gap: Spacing.sm,
+  },
+  badgeCardHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  badgeEmpty: {
+    width: 44, height: 60, borderRadius: BorderRadius.md, borderWidth: 1.5,
+    borderColor: Colors.border, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  badgeCardTitle: { fontSize: FontSize.md, fontWeight: '800', color: Colors.text },
+  badgeCardSub: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 3, lineHeight: 16 },
+  badgeTrack: {
+    height: 6, backgroundColor: Colors.surfaceLight,
+    borderRadius: BorderRadius.full, overflow: 'hidden',
+  },
+  badgeFill: { height: '100%', borderRadius: BorderRadius.full },
+  tierRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 2 },
+  tierItem: { alignItems: 'center', gap: 3, flex: 1 },
+  tierDays: { fontSize: 9, color: Colors.textMuted, fontWeight: '600' },
+  badgeWarn: { fontSize: FontSize.xs, color: Colors.textMuted, lineHeight: 16, fontStyle: 'italic' },
+
+  // Déblocage d'un palier
+  unlockCard: {
+    flexDirection: 'row', alignItems: 'center', gap: Spacing.md,
+    backgroundColor: Colors.gold + '14', borderRadius: BorderRadius.lg,
+    borderWidth: 1.5, borderColor: Colors.gold + '55', padding: Spacing.md,
+  },
+  unlockTitle: { fontSize: FontSize.md, fontWeight: '800', color: Colors.gold },
+  unlockText: { fontSize: FontSize.xs, color: Colors.textSecondary, marginTop: 3, lineHeight: 17 },
+
+  // Correction de fin de quiz
+  reviewCard: {
+    backgroundColor: Colors.surface, borderRadius: BorderRadius.lg, borderWidth: 1,
+    borderColor: Colors.border, padding: Spacing.md, gap: Spacing.sm,
+  },
+  reviewTitle: {
+    fontSize: FontSize.xs, fontWeight: '800', color: Colors.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  reviewItem: {
+    gap: 3, paddingVertical: Spacing.sm,
+    borderTopWidth: 1, borderTopColor: Colors.border,
+  },
+  reviewHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  reviewMark: {
+    width: 20, height: 20, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  reviewQuestion: { flex: 1, fontSize: FontSize.sm, color: Colors.text, fontWeight: '700', lineHeight: 19 },
+  reviewGiven: { fontSize: FontSize.xs, color: Colors.textMuted, marginLeft: 28 },
+  reviewGivenBad: { color: Colors.loss, fontWeight: '700' },
+  reviewAnswer: { fontSize: FontSize.xs, color: Colors.textMuted, marginLeft: 28 },
+  reviewAnswerGood: { color: Colors.win, fontWeight: '700' },
 
   nextBtn: {
     flexDirection: 'row',
@@ -537,6 +669,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
   },
   nextBtnText: { color: '#fff', fontWeight: '800', fontSize: FontSize.md },
+  nextBtnDisabled: { opacity: 0.35 },
 
   // Result
   resultCard: { borderRadius: BorderRadius.lg, padding: Spacing.lg, alignItems: 'center' },

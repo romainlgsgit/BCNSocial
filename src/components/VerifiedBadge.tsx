@@ -2,10 +2,12 @@ import React from 'react';
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-const COLOR = '#1D9BF0';
+const COLOR_BLUE = '#1D9BF0';
+const COLOR_GOLD = '#E8A800';
 const NUM_BUMPS = 10;
 
-export default function VerifiedBadge({ size = 16 }: { size?: number }) {
+export default function VerifiedBadge({ size = 16, gold = false }: { size?: number; gold?: boolean }) {
+  const COLOR = gold ? COLOR_GOLD : COLOR_BLUE;
   const R = size / 2;       // rayon du cercle principal
   const r = R * 0.16;       // rayon des bosses
 

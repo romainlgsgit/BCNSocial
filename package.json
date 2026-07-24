@@ -6,6 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "ios:sim": "expo run:ios --device 61F956A4-F344-4FCC-B26D-ED3CA70884CD",
+    "ios:sim2": "bash scripts/run-sim2.sh",
     "web": "expo start --web"
   },
   "dependencies": {
@@ -15,6 +17,8 @@
     "@react-navigation/native": "^7.1.33",
     "@react-navigation/stack": "^7.8.4",
     "expo": "~55.0.13",
+    "expo-apple-authentication": "~55.0.15",
+    "expo-crypto": "~55.0.17",
     "expo-dev-client": "~55.0.36",
     "expo-file-system": "~55.0.23",
     "expo-image-manipulator": "~55.0.15",
@@ -24,6 +28,7 @@
     "expo-secure-store": "~55.0.13",
     "expo-status-bar": "~55.0.5",
     "expo-tracking-transparency": "~55.0.15",
+    "expo-updates": "~55.0.26",
     "firebase": "^12.10.0",
     "react": "19.2.0",
     "react-native": "^0.83.4",

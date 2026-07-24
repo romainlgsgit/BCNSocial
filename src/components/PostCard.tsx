@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../context/AuthContext';
+import { useModeration } from '../context/ModerationContext';
 import { usePremium } from '../context/PremiumContext';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Post, PostTag } from '../types';
@@ -38,30 +39,58 @@ function formatTimeAgo(dateStr: string): string {
 }
 
 export default function PostCard({ post, onDelete }: { post: Post; onDelete?: () => void }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const { deletePostAsAdmin } = useModeration();
   const { isPremium } = usePremium();
   const [imageRatio, setImageRatio] = useState<number | null>(null);
   const navigation = useNavigation<any>();
   const [showComments, setShowComments] = useState(false);
 
-  const likedBy = post.likedBy ?? [];
-  const liked = user ? likedBy.includes(user.id) : false;
-  const likeCount = likedBy.length;
+  // Like OPTIMISTE : mis à jour localement tout de suite (le feed paginé n'a plus
+  // d'écouteur temps réel sur les vieux posts, donc on ne peut pas compter dessus).
+  const [localLikedBy, setLocalLikedBy] = useState<string[]>(post.likedBy ?? []);
+  useEffect(() => { setLocalLikedBy(post.likedBy ?? []); }, [post.likedBy]);
+  const liked = user ? localLikedBy.includes(user.id) : false;
+  const likeCount = localLikedBy.length;
 
   const isOwnPost = user?.id === post.userId;
   const isVerified = isOwnPost
     ? ((user?.verified ?? false) && isPremium)
     : (post.verified ?? false);
+  // La certification or (manuelle) prend la place du badge bleu quand elle est présente
+  const isGoldVerified = isOwnPost
+    ? (user?.goldVerified ?? false)
+    : (post.goldVerified ?? false);
 
   const tagColor = post.tag ? TAG_COLORS[post.tag] : undefined;
+
+  const handleModerateDelete = () => {
+    Alert.alert(
+      'Supprimer ce post',
+      `Post de ${post.username}. Il sera définitivement supprimé, avec ses commentaires.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try { await deletePostAsAdmin(post.id); }
+            catch { Alert.alert('Erreur', 'La suppression a échoué.'); }
+          },
+        },
+      ],
+    );
+  };
 
   const handleLike = async () => {
     if (!user) return;
     const postRef = doc(db, 'posts', post.id);
-    if (liked) {
-      await updateDoc(postRef, { likedBy: arrayRemove(user.id) });
-    } else {
-      await updateDoc(postRef, { likedBy: arrayUnion(user.id) });
+    const willLike = !liked;
+    setLocalLikedBy(prev => willLike ? [...new Set([...prev, user.id])] : prev.filter(id => id !== user.id));
+    try {
+      await updateDoc(postRef, { likedBy: willLike ? arrayUnion(user.id) : arrayRemove(user.id) });
+    } catch {
+      setLocalLikedBy(prev => willLike ? prev.filter(id => id !== user.id) : [...prev, user.id]); // rollback si échec
     }
   };
 
@@ -88,7 +117,7 @@ export default function PostCard({ post, onDelete }: { post: Post; onDelete?: ()
           <View style={styles.userMeta}>
             <View style={styles.usernameRow}>
               <Text style={styles.username}>{post.username}</Text>
-              {isVerified && <VerifiedBadge size={15} />}
+              {(isGoldVerified || isVerified) && <VerifiedBadge size={15} gold={isGoldVerified} />}
             </View>
             <Text style={styles.time}>{formatTimeAgo(post.createdAt)}</Text>
           </View>
@@ -101,11 +130,16 @@ export default function PostCard({ post, onDelete }: { post: Post; onDelete?: ()
           </View>
         )}
 
-        {onDelete && (
+        {onDelete ? (
           <TouchableOpacity onPress={onDelete} activeOpacity={0.7} style={styles.deleteBtn}>
             <Ionicons name="trash-outline" size={16} color={Colors.textMuted} />
           </TouchableOpacity>
-        )}
+        ) : (isAdmin && !isOwnPost) ? (
+          // Modération : l'admin peut supprimer n'importe quel post en naviguant.
+          <TouchableOpacity onPress={handleModerateDelete} activeOpacity={0.7} style={styles.deleteBtn}>
+            <Ionicons name="shield" size={16} color="#EF4444" />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {/* Content */}
@@ -200,6 +234,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceLight,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   avatarEmoji: {
     fontSize: 22,

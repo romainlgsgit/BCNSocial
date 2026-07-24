@@ -23,6 +23,10 @@ import { PostTag } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 const MAX_LENGTH = 500;
+// Format de l'image gardé tel quel, juste borné pour éviter les extrêmes
+// (portrait trop long / paysage trop large) — mêmes bornes qu'Instagram.
+const MIN_IMAGE_ASPECT = 4 / 5;  // portrait max
+const MAX_IMAGE_ASPECT = 1.91;   // paysage max
 
 const TAGS: { tag: PostTag; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { tag: 'match',   label: 'Match',   icon: 'football',  color: Colors.secondary },
@@ -44,6 +48,7 @@ export default function CreatePostModal({ visible, onClose, onSubmit, isPremium 
   const [content, setContent] = useState('');
   const [selectedTag, setSelectedTag] = useState<PostTag | undefined>();
   const [imageBase64, setImageBase64] = useState<string | undefined>();
+  const [imageAspectRatio, setImageAspectRatio] = useState<number | null>(null);
   const [mentions, setMentions] = useState<MentionUser[]>([]);
   const [mentionSearch, setMentionSearch] = useState<string | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionUser[]>([]);
@@ -94,6 +99,7 @@ export default function CreatePostModal({ visible, onClose, onSubmit, isPremium 
     setContent('');
     setSelectedTag(undefined);
     setImageBase64(undefined);
+    setImageAspectRatio(null);
     setMentions([]);
   };
 
@@ -101,6 +107,7 @@ export default function CreatePostModal({ visible, onClose, onSubmit, isPremium 
     setContent('');
     setSelectedTag(undefined);
     setImageBase64(undefined);
+    setImageAspectRatio(null);
     setMentions([]);
     onClose();
   };
@@ -118,12 +125,32 @@ export default function CreatePostModal({ visible, onClose, onSubmit, isPremium 
       quality: 0.8,
     });
     if (result.canceled) return;
+
+    const asset = result.assets[0];
+    const actions: ImageManipulator.Action[] = [];
+
+    // Ne recadre que si l'image dépasse les bornes (portrait trop long / paysage trop large)
+    if (asset.width && asset.height) {
+      const ratio = asset.width / asset.height;
+      if (ratio < MIN_IMAGE_ASPECT) {
+        const cropHeight = Math.round(asset.width / MIN_IMAGE_ASPECT);
+        actions.push({ crop: { originX: 0, originY: Math.round((asset.height - cropHeight) / 2), width: asset.width, height: cropHeight } });
+      } else if (ratio > MAX_IMAGE_ASPECT) {
+        const cropWidth = Math.round(asset.height * MAX_IMAGE_ASPECT);
+        actions.push({ crop: { originX: Math.round((asset.width - cropWidth) / 2), originY: 0, width: cropWidth, height: asset.height } });
+      }
+    }
+    actions.push({ resize: { width: 800 } });
+
     const manipulated = await ImageManipulator.manipulateAsync(
-      result.assets[0].uri,
-      [{ resize: { width: 800 } }],
+      asset.uri,
+      actions,
       { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
     );
     setImageBase64(manipulated.base64 ?? undefined);
+    if (manipulated.width && manipulated.height) {
+      setImageAspectRatio(manipulated.width / manipulated.height);
+    }
   };
 
   const remaining = MAX_LENGTH - content.length;
@@ -208,10 +235,10 @@ export default function CreatePostModal({ visible, onClose, onSubmit, isPremium 
               <View style={styles.imagePreviewWrap}>
                 <Image
                   source={{ uri: `data:image/jpeg;base64,${imageBase64}` }}
-                  style={styles.imagePreview}
+                  style={[styles.imagePreview, { aspectRatio: imageAspectRatio ?? 1 }]}
                   resizeMode="cover"
                 />
-                <TouchableOpacity style={styles.imageRemove} onPress={() => setImageBase64(undefined)}>
+                <TouchableOpacity style={styles.imageRemove} onPress={() => { setImageBase64(undefined); setImageAspectRatio(null); }}>
                   <Ionicons name="close-circle" size={22} color="#fff" />
                 </TouchableOpacity>
               </View>
@@ -486,7 +513,7 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: 2 },
 
   imagePreviewWrap: { position: 'relative', marginBottom: 12, borderRadius: 12, overflow: 'hidden' },
-  imagePreview: { width: '100%', height: 200, borderRadius: 12 },
+  imagePreview: { width: '100%', borderRadius: 12 },
   imageRemove: {
     position: 'absolute', top: 8, right: 8,
     backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 12,

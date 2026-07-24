@@ -15,8 +15,9 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { collection, addDoc, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, orderBy, query, limit, getDocs, startAfter } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Post, PostTag, Team } from '../types';
@@ -31,6 +32,7 @@ import FeedAdCard from '../components/FeedAdCard';
 
 // Pub toutes les N publications
 const AD_FREQUENCY = 5;
+const FEED_PAGE_SIZE = 20; // posts chargés par page (temps réel sur la 1re page, pagination ponctuelle ensuite)
 
 type AdSlot = { _ad: true; id: string };
 type FeedItem = Post | AdSlot;
@@ -166,7 +168,16 @@ function formatGoalMinutes(items: { minute: string; isPenalty?: boolean; isOwnGo
 }
 
 function MatchBanner() {
-  const { featuredMatch: match, liveData, liveMinute, isLoadingMatches } = useFeaturedMatch();
+  const { featuredMatch: match, liveData, liveMinute, isLoadingMatches, setLiveScreenActive } = useFeaturedMatch();
+
+  // Le score n'est visible que sur cet écran : ailleurs, inutile d'interroger ESPN
+  // toutes les 8s — le score continue d'arriver via l'écouteur partagé.
+  useFocusEffect(
+    useCallback(() => {
+      setLiveScreenActive(true);
+      return () => setLiveScreenActive(false);
+    }, [setLiveScreenActive])
+  );
 
   if (!match) {
     return (
@@ -390,8 +401,11 @@ export default function HomeScreen() {
   const { user, isAuthenticated } = useAuth();
   const { isPremium, canPost, FREE_DAILY_POST_LIMIT, openPremiumScreen } = usePremium();
   const { isAnyBlock } = useBlock();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [livePosts, setLivePosts] = useState<Post[]>([]);   // 1re page en temps réel
+  const [olderPosts, setOlderPosts] = useState<Post[]>([]); // pages suivantes (chargées ponctuellement)
   const [loadingPosts, setLoadingPosts] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [activeFilter, setActiveFilter] = useState<Filter>('tous');
 
@@ -407,6 +421,16 @@ export default function HomeScreen() {
       else AsyncStorage.removeItem(key);
     });
   }, [user?.id]);
+
+  // Fusionne la page temps réel et les pages paginées (dédoublonnage par id, tri par date desc)
+  const posts = useMemo(() => {
+    const map = new Map<string, Post>();
+    for (const p of olderPosts) map.set(p.id, p);
+    for (const p of livePosts) map.set(p.id, p); // le temps réel prime (plus frais)
+    return [...map.values()].sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0));
+  }, [livePosts, olderPosts]);
+  const postsRef = useRef<Post[]>([]);
+  useEffect(() => { postsRef.current = posts; }, [posts]);
 
   const filteredPosts = useMemo(() => {
     const visible = posts.filter(p => !isAnyBlock(p.userId));
@@ -426,16 +450,35 @@ export default function HomeScreen() {
     return result;
   }, [filteredPosts]);
 
-  // Écoute les posts Firestore en temps réel
+  // Temps réel UNIQUEMENT sur la 1re page (les posts les plus récents) → borne les lectures
+  // Firestore au lieu de relire tout le feed + chaque like/commentaire de tous les posts.
   useEffect(() => {
-    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(FEED_PAGE_SIZE));
     const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Post));
-      setPosts(data);
+      setLivePosts(snap.docs.map(d => ({ id: d.id, ...d.data() } as Post)));
       setLoadingPosts(false);
     });
     return () => unsub();
   }, []);
+
+  // Pages suivantes : lecture PONCTUELLE (getDocs) au scroll, pas d'écouteur → pas de coût
+  // récurrent sur les vieux posts.
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    const all = postsRef.current;
+    const oldest = all[all.length - 1];
+    if (!oldest) return;
+    setLoadingMore(true);
+    try {
+      const snap = await getDocs(query(
+        collection(db, 'posts'), orderBy('createdAt', 'desc'),
+        startAfter(oldest.createdAt), limit(FEED_PAGE_SIZE),
+      ));
+      const more = snap.docs.map(d => ({ id: d.id, ...d.data() } as Post));
+      if (more.length) setOlderPosts(prev => [...prev, ...more]);
+      if (more.length < FEED_PAGE_SIZE) setHasMore(false);
+    } catch { /* silencieux */ } finally { setLoadingMore(false); }
+  }, [loadingMore, hasMore]);
 
   const handleOpenPost = useCallback(() => {
     if (!canPost(todayPostCount)) {
@@ -464,6 +507,7 @@ export default function HomeScreen() {
       avatar: user.avatar,
       avatarPhoto: user.photoBase64 ?? null,
       verified: user.verified ?? false,
+      goldVerified: user.goldVerified ?? false,
       content,
       imageBase64: imageBase64 ?? null,
       mentionedUsers: mentions?.map(m => ({ id: m.id, username: m.username })) ?? [],
@@ -536,7 +580,13 @@ export default function HomeScreen() {
         ListHeaderComponent={ListHeader}
         extraData={[user?.photoBase64, activeFilter]}
         showsVerticalScrollIndicator={false}
-        ListFooterComponent={<View style={{ height: 60 }} />}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.6}
+        ListFooterComponent={
+          loadingMore
+            ? <View style={{ height: 60, justifyContent: 'center' }}><ActivityIndicator color={Colors.primary} /></View>
+            : <View style={{ height: 60 }} />
+        }
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
           loadingPosts ? null : (
@@ -826,13 +876,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: Colors.primary + '60',
+    overflow: 'hidden',
   },
   createAvatarEmoji: {
     fontSize: 17,
   },
   createAvatarImage: {
-    width: 36,
-    height: 36,
+    width: '100%',
+    height: '100%',
     borderRadius: 18,
   },
   createText: {

@@ -4,10 +4,9 @@ import { getFirestore, FieldValue, Firestore, DocumentData, QueryDocumentSnapsho
 
 initializeApp();
 
-const APIFOOTBALL_KEY = '6e329e6f75ffdaa7d69a869d6764ed37';
-const APIFOOTBALL_BARCA_ID = 529;
-const FOOTBALLDATA_KEY = '3000b1fbd35442c4924a4b1c560eb630';
-const FOOTBALLDATA_BARCA_ID = 81;
+const ESPN_BARCA_ID = '83';
+// Compétitions où Barça peut jouer (même liste que le client MatchContext.tsx)
+const ESPN_LEAGUES = ['esp.1', 'esp.copa_del_rey', 'esp.super_cup', 'uefa.champions', 'fifa.cwc', 'club.friendly'];
 
 const MIN_POLL_INTERVAL_MS = 90 * 1000;
 const PREMATCH_WINDOW_MS = 15 * 60 * 1000;
@@ -58,28 +57,67 @@ async function settleBets(db: Firestore, matchId: string, result: BetResult) {
   }));
 }
 
+// ─── ESPN : découverte du prochain match Barça (toutes compétitions) ──────────
+
+function formatDateYmd(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+}
+
+async function fetchNextBarcaEvent(): Promise<{ id: string; date: string; league: string } | null> {
+  const now = new Date();
+  const from = formatDateYmd(now);
+  const to = formatDateYmd(new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000));
+  const dateRange = `${from}-${to}`;
+
+  const results = await Promise.all(
+    ESPN_LEAGUES.map(league =>
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/scoreboard?dates=${dateRange}`)
+        .then(r => r.json())
+        .then(json => ({ league, events: (json.events ?? []) as any[] }))
+        .catch(() => ({ league, events: [] as any[] }))
+    )
+  );
+
+  let best: { id: string; date: string; league: string; dt: number } | null = null;
+  for (const { league, events } of results) {
+    for (const ev of events) {
+      const competitors = ev.competitions?.[0]?.competitors ?? [];
+      const involvesBarca = competitors.some((c: any) => String(c.team?.id) === ESPN_BARCA_ID);
+      if (!involvesBarca) continue;
+      if (ev.competitions?.[0]?.status?.type?.state === 'post') continue; // déjà terminé
+      const dt = new Date(ev.date).getTime();
+      if (!best || dt < best.dt) best = { id: String(ev.id), date: ev.date, league, dt };
+    }
+  }
+  return best ? { id: best.id, date: best.date, league: best.league } : null;
+}
+
 // ─── Mise à jour du planning (prochain match Barça) ───────────────────────────
 // Tourne toutes les 6 heures pour que pollLiveMatch sache quand démarrer le polling.
 
 export const updateMatchSchedule = onSchedule('every 6 hours', async () => {
   const db = getFirestore();
   try {
-    const res = await fetch(
-      `https://api.football-data.org/v4/teams/${FOOTBALLDATA_BARCA_ID}/matches?status=SCHEDULED&limit=1`,
-      { headers: { 'X-Auth-Token': FOOTBALLDATA_KEY } }
-    );
-    if (!res.ok) return;
-    const json = await res.json();
-    const match = json.matches?.[0];
-    if (!match) return;
+    const next = await fetchNextBarcaEvent();
+    if (!next) return;
 
     await db.doc('liveMatch/schedule').set({
-      nextMatchId: String(match.id),
-      nextMatchDate: match.utcDate,
+      nextMatchId: next.id,
+      nextMatchDate: next.date,
+      nextMatchLeague: next.league,
       updatedAt: FieldValue.serverTimestamp(),
     });
   } catch {}
 });
+
+// "19'" → 19, "45+2'" → 47, "90+3'" → 93
+function parseDisplayClock(s: any): number | null {
+  if (typeof s !== 'string') return null;
+  const m = s.match(/^(\d+)(?:\+(\d+))?/);
+  if (!m) return null;
+  return parseInt(m[1], 10) + (m[2] ? parseInt(m[2], 10) : 0);
+}
 
 // ─── Polling live + règlement automatique ─────────────────────────────────────
 
@@ -98,86 +136,44 @@ export const pollLiveMatch = onSchedule('every 1 minutes', async () => {
   const lastCall = (current?.updatedAt as { toMillis(): number } | undefined)?.toMillis() ?? 0;
   if (Date.now() - lastCall < MIN_POLL_INTERVAL_MS) return;
 
+  const matchId = schedule?.nextMatchId as string | undefined;
+  const league = schedule?.nextMatchLeague as string | undefined;
+  if (!matchId || !league || !schedule?.nextMatchDate) return;
+
   // Fenêtre de match : ne polluer que pendant la période utile
-  if (schedule?.nextMatchDate) {
-    const matchTime = new Date(schedule.nextMatchDate as string).getTime();
-    const msFromKO = Date.now() - matchTime;
-    if (msFromKO < -PREMATCH_WINDOW_MS) return;
-    if (msFromKO > MATCH_MAX_DURATION_MS) return;
-  } else {
-    return;
-  }
+  const matchTime = new Date(schedule.nextMatchDate as string).getTime();
+  const msFromKO = Date.now() - matchTime;
+  if (msFromKO < -PREMATCH_WINDOW_MS) return;
+  if (msFromKO > MATCH_MAX_DURATION_MS) return;
 
-  const matchId = schedule?.nextMatchId ?? current?.matchId ?? null;
-  const prevStatus = current?.status as string | null;
-
-  // ── Appel API-Football (scores live) ──
-  let json: any;
+  // ── Appel ESPN (score + statut du match) ──
+  let comp: any;
   try {
     const res = await fetch(
-      `https://v3.football.api-sports.io/fixtures?team=${APIFOOTBALL_BARCA_ID}&live=all`,
-      { headers: { 'x-apisports-key': APIFOOTBALL_KEY } }
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/summary?event=${matchId}`
     );
     if (!res.ok) return;
-    json = await res.json();
+    const json = await res.json();
+    comp = json.header?.competitions?.[0];
+    if (!comp) return;
   } catch {
     return;
   }
 
-  // ── Aucun match live ──
-  if (!json.response?.length) {
-    // Si le match était en cours et api-sports ne le renvoie plus → probablement terminé
-    // On confirme via football-data.org (pas de quota journalier)
-    if ((prevStatus === 'IN_PLAY' || prevStatus === 'PAUSED') && matchId) {
-      try {
-        const fdRes = await fetch(
-          `https://api.football-data.org/v4/matches/${matchId}`,
-          { headers: { 'X-Auth-Token': FOOTBALLDATA_KEY } }
-        );
-        if (fdRes.ok) {
-          const fdJson = await fdRes.json();
-          if (fdJson.status === 'FINISHED') {
-            const homeScore = fdJson.score?.fullTime?.home ?? 0;
-            const awayScore = fdJson.score?.fullTime?.away ?? 0;
-            const result: BetResult = homeScore > awayScore ? 'home' : awayScore > homeScore ? 'away' : 'draw';
-
-            await db.doc('liveMatch/current').set({
-              status: 'FINISHED', homeScore, awayScore, minute: null, matchId,
-              updatedAt: FieldValue.serverTimestamp(),
-            });
-
-            // Régler les paris si pas encore fait
-            const alreadySettled = await db.doc(`matchResults/${matchId}`).get();
-            if (!alreadySettled.exists) {
-              await db.doc(`matchResults/${matchId}`).set({ result, finishedAt: FieldValue.serverTimestamp() });
-              await settleBets(db, matchId, result);
-            }
-            return;
-          }
-        }
-      } catch {}
-    }
-
-    await db.doc('liveMatch/current').set({
-      status: null, homeScore: null, awayScore: null, minute: null, matchId,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    return;
-  }
-
-  // ── Match live trouvé ──
-  const f = json.response[0];
-  const short: string = f.fixture.status.short;
+  const competitors = comp.competitors ?? [];
+  const home = competitors.find((c: any) => c.homeAway === 'home') ?? competitors[0];
+  const away = competitors.find((c: any) => c.homeAway === 'away') ?? competitors[1];
+  const statusType = comp.status?.type;
 
   let status: string;
-  if (['1H', '2H', 'ET', 'P', 'LIVE', 'INT'].includes(short)) status = 'IN_PLAY';
-  else if (['HT', 'BT'].includes(short)) status = 'PAUSED';
-  else if (['FT', 'AET', 'PEN'].includes(short)) status = 'FINISHED';
+  if (['STATUS_HALFTIME', 'STATUS_END_PERIOD'].includes(statusType?.name)) status = 'PAUSED';
+  else if (statusType?.state === 'in') status = 'IN_PLAY';
+  else if (statusType?.state === 'post') status = 'FINISHED';
   else status = 'SCHEDULED';
 
-  const homeScore: number = f.goals.home ?? 0;
-  const awayScore: number = f.goals.away ?? 0;
-  const minute: number | null = f.fixture.status.elapsed ?? null;
+  const homeScore: number = Number(home?.score ?? 0);
+  const awayScore: number = Number(away?.score ?? 0);
+  const minute: number | null = status === 'IN_PLAY' ? parseDisplayClock(comp.status?.displayClock) : null;
 
   // ── Détecter un but ──
   const prevHome = current?.homeScore as number | null;

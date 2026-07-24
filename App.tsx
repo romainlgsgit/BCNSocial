@@ -13,7 +13,9 @@ import { PlayersProvider } from './src/context/PlayersContext';
 import { PremiumProvider, usePremium } from './src/context/PremiumContext';
 import { RatingsProvider } from './src/context/RatingsContext';
 import { FollowProvider } from './src/context/FollowContext';
+import { GameProvider } from './src/context/GameContext';
 import { BlockProvider } from './src/context/BlockContext';
+import { ModerationProvider } from './src/context/ModerationContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import PremiumScreen from './src/screens/PremiumScreen';
 import { registerPushToken } from './src/utils/notifications';
@@ -26,7 +28,7 @@ function GlobalModals() {
 }
 
 function AppWithProviders() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
 
   useEffect(() => {
     // iOS ignore silencieusement la demande ATT (aucun popup, aucune erreur) si elle
@@ -70,19 +72,23 @@ function AppWithProviders() {
   }, [user?.id]);
 
   return (
-    <PremiumProvider userId={user?.id}>
+    <PremiumProvider userId={user?.id} authReady={!authLoading}>
       <PlayersProvider>
         <MatchProvider>
           <PronoProvider>
             <QuizProvider>
               <RatingsProvider>
                 <FollowProvider>
-                  <BlockProvider currentUserId={user?.id}>
-                    <NavigationContainer>
-                      <AppNavigator />
-                    </NavigationContainer>
-                    <GlobalModals />
-                  </BlockProvider>
+                  <GameProvider>
+                    <BlockProvider currentUserId={user?.id}>
+                      <ModerationProvider>
+                        <NavigationContainer>
+                          <AppNavigator />
+                        </NavigationContainer>
+                        <GlobalModals />
+                      </ModerationProvider>
+                    </BlockProvider>
+                  </GameProvider>
                 </FollowProvider>
               </RatingsProvider>
             </QuizProvider>

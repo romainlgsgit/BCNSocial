@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { View, ActivityIndicator } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { NavigationContainerRef } from '@react-navigation/native';
@@ -9,10 +10,17 @@ import RatingsScreen from '../screens/RatingsScreen';
 import PronosticsScreen from '../screens/PronosticsScreen';
 import QuizScreen from '../screens/QuizScreen';
 import GamesHubScreen from '../screens/GamesHubScreen';
+import ShootoutScreen from '../screens/ShootoutScreen';
+import PenaltyScreen from '../screens/PenaltyScreen';
+import DraftFootScreen from '../screens/DraftFootScreen';
+import BannedScreen from '../screens/BannedScreen';
+import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AdminScreen from '../screens/AdminScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import AuthScreen from '../screens/AuthScreen';
+import { useAuth } from '../context/AuthContext';
 import { Colors } from '../theme';
 
 export type RootTabParamList = {
@@ -27,13 +35,19 @@ export type GamesStackParamList = {
   GamesHub: undefined;
   Pronostics: undefined;
   Quiz: undefined;
+  Shootout: undefined;
+  Penalty: undefined;
+  DraftFoot: undefined;
 };
 
 export type RootStackParamList = {
+  Auth: undefined;
   MainTabs: undefined;
   Admin: undefined;
   UserProfile: { userId: string };
   Settings: undefined;
+  Banned: undefined;
+  VerifyEmail: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -51,6 +65,9 @@ function GamesNavigator() {
       <GamesStack.Screen name="Quiz">
         {() => <QuizScreen onNavigateToProfile={() => profileRef.current?.navigate('Profile')} />}
       </GamesStack.Screen>
+      <GamesStack.Screen name="Shootout" component={ShootoutScreen} />
+      <GamesStack.Screen name="Penalty" component={PenaltyScreen} />
+      <GamesStack.Screen name="DraftFoot" component={DraftFootScreen} />
     </GamesStack.Navigator>
   );
 }
@@ -127,6 +144,46 @@ interface Props {
 }
 
 export default function AppNavigator({ navigationRef }: Props) {
+  const { isAuthenticated, isLoading, banVerdict, needsEmailVerification } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Auth" component={AuthScreen} />
+      </Stack.Navigator>
+    );
+  }
+
+  // Adresse email non confirmée : blocage total tant que le lien n'est pas ouvert.
+  // Placé AVANT le bannissement pour que ce soit vérifié en premier sur un compte
+  // tout juste créé.
+  if (needsEmailVerification) {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+      </Stack.Navigator>
+    );
+  }
+
+  // Compte banni : l'app entière est remplacée par l'écran d'information. Le
+  // verrou qui compte reste côté serveur (règles Firestore) — celui-ci n'est que
+  // la partie visible.
+  if (banVerdict.banned) {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Banned" component={BannedScreen} />
+      </Stack.Navigator>
+    );
+  }
+
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="MainTabs" component={MainTabs} />

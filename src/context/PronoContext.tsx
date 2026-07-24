@@ -2,8 +2,9 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef,
 import { doc, getDoc, setDoc, deleteField, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Match } from '../types';
-import { useFeaturedMatch } from './MatchContext';
+import { useFeaturedMatch, BARCA_LEAGUES } from './MatchContext';
 import { useAuth } from './AuthContext';
+import { formatMatchLabel } from '../utils/matchLabels';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -19,9 +20,32 @@ export interface UserBet {
   prediction: BetPrediction;
   coins: number;
   potentialWin: number;
+  /** Libellé du match ("FCB – RMA") figé à la prise du pari : le match sort du
+   *  calendrier une fois joué, le pari lui reste affiché dans le profil. */
+  matchLabel?: string;
   result?: 'won' | 'lost';
   wonAmount?: number;
   settledAt?: number;
+}
+
+// ─── Rétention des paris réglés ───────────────────────────────────────────────
+// Un pari réglé n'a plus qu'une valeur d'historique : on n'en garde que les 3
+// derniers, et rien au-delà de 30 jours. Le reste est supprimé de bets/{uid}
+// (le document ne gonfle plus, et le quota Firestore est partagé par l'app).
+// Les paris EN ATTENTE ne sont jamais touchés : leur mise n'a pas encore été rendue.
+export const MAX_SETTLED_BETS = 3;
+export const SETTLED_BET_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+export const isBetExpired = (bet: UserBet, now = Date.now()) =>
+  bet.settledAt !== undefined && now - bet.settledAt > SETTLED_BET_TTL_MS;
+
+/** Ids des paris réglés à supprimer : au-delà des 3 derniers, ou trop vieux. */
+export function prunableBetIds(bets: Record<string, UserBet>, now = Date.now()): string[] {
+  return Object.entries(bets)
+    .filter(([, b]) => b.result !== undefined)
+    .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0))
+    .filter(([, b], i) => i >= MAX_SETTLED_BETS || isBetExpired(b, now))
+    .map(([id]) => id);
 }
 
 export type PronoMatch = Match & {
@@ -68,6 +92,8 @@ export function PronoProvider({ children }: { children: ReactNode }) {
       setBetsMap(bets);
       // Pour chaque pari en attente, vérifier s'il existe un résultat dans matchResults
       settlePendingBets(bets, user.id);
+      // Purge l'historique périmé même si l'utilisateur ne parie plus
+      pruneSettledBets(bets, user.id);
     });
     return () => unsub();
   }, [user?.id]);
@@ -79,26 +105,50 @@ export function PronoProvider({ children }: { children: ReactNode }) {
       if (snap.exists()) return (snap.data() as { result: BetPrediction }).result;
     } catch {}
 
-    // 2. Fallback : appel direct football-data.org (gratuit, 10 req/min)
+    // 2. Fallback : appel direct ESPN (gratuit, sans clé) — on ne connaît pas la
+    // compétition de ce matchId, donc on tente toutes les ligues où Barça joue
+    // en parallèle et on garde la première réponse valide et terminée.
     try {
-      const res = await fetch(
-        `https://api.football-data.org/v4/matches/${matchId}`,
-        { headers: { 'X-Auth-Token': '3000b1fbd35442c4924a4b1c560eb630' } }
+      const responses = await Promise.all(
+        BARCA_LEAGUES.map(league =>
+          fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/summary?event=${matchId}`)
+            .then(r => (r.ok ? r.json() : null))
+            .catch(() => null)
+        )
       );
-      if (!res.ok) return null;
-      const json = await res.json();
-      if (json.status !== 'FINISHED') return null;
 
-      const home: number = json.score?.fullTime?.home ?? 0;
-      const away: number = json.score?.fullTime?.away ?? 0;
-      const result: BetPrediction = home > away ? 'home' : away > home ? 'away' : 'draw';
+      for (const json of responses) {
+        const comp = json?.header?.competitions?.[0];
+        if (!comp) continue;
+        const st = comp.status?.type;
+        if (st?.state !== 'post') continue;
 
-      // Mettre en cache pour les autres utilisateurs
-      setDoc(doc(db, 'matchResults', matchId), { result, finishedAt: serverTimestamp() }).catch(() => {});
-      return result;
+        const competitors = comp.competitors ?? [];
+        const home = competitors.find((c: any) => c.homeAway === 'home') ?? competitors[0];
+        const away = competitors.find((c: any) => c.homeAway === 'away') ?? competitors[1];
+        const homeScore = Number(home?.score ?? 0);
+        const awayScore = Number(away?.score ?? 0);
+        const result: BetPrediction = homeScore > awayScore ? 'home' : awayScore > homeScore ? 'away' : 'draw';
+
+        // Mettre en cache pour les autres utilisateurs
+        setDoc(doc(db, 'matchResults', matchId), { result, finishedAt: serverTimestamp() }).catch(() => {});
+        return result;
+      }
     } catch {}
 
     return null;
+  };
+
+  // Supprime les paris réglés hors rétention. La suppression relance ce snapshot,
+  // mais le second passage ne trouve plus rien à purger → pas de boucle.
+  const pruneSettledBets = async (bets: Record<string, UserBet>, userId: string) => {
+    const ids = prunableBetIds(bets);
+    if (!ids.length) return;
+    const updates: Record<string, any> = {};
+    ids.forEach(id => { updates[id] = deleteField(); });
+    try {
+      await updateDoc(doc(db, 'bets', userId), updates);
+    } catch {}
   };
 
   const settlePendingBets = async (bets: Record<string, UserBet>, userId: string) => {
@@ -124,12 +174,11 @@ export function PronoProvider({ children }: { children: ReactNode }) {
           settledAt: Date.now(),
         };
 
-        const alreadySettled = Object.entries(bets)
-          .filter(([id, b]) => b.result !== undefined && id !== matchId)
-          .sort(([, a], [, b]) => (b.settledAt ?? 0) - (a.settledAt ?? 0));
-
+        // Le pari qu'on vient de régler est le plus récent : jamais purgé ici.
         const updates: Record<string, any> = { [matchId]: settledBet };
-        alreadySettled.slice(4).forEach(([id]) => { updates[id] = deleteField(); });
+        prunableBetIds({ ...bets, [matchId]: settledBet })
+          .filter(id => id !== matchId)
+          .forEach(id => { updates[id] = deleteField(); });
 
         await updateDoc(doc(db, 'bets', userId), updates);
       } catch {
@@ -223,7 +272,9 @@ export function PronoProvider({ children }: { children: ReactNode }) {
   // ── Placer un pari : sauvegarder dans Firestore ──
   const placeBet = async (matchId: string, prediction: BetPrediction, coins: number, potentialWin: number) => {
     if (!user) return;
+    const match = pronoMatches.find(m => m.id === matchId);
     const bet: UserBet = { prediction, coins, potentialWin };
+    if (match) bet.matchLabel = formatMatchLabel(match.homeTeam.shortName, match.awayTeam.shortName);
     const ref = doc(db, 'bets', user.id);
     const snap = await getDoc(ref);
     const current = snap.exists() ? snap.data() : {};

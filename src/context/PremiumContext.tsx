@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import Purchases, { PurchasesPackage, CustomerInfo } from 'react-native-purchases';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -43,14 +43,34 @@ export const FREE_DAILY_POST_LIMIT = 5;
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-export function PremiumProvider({ children, userId }: { children: React.ReactNode; userId?: string }) {
+export function PremiumProvider({
+  children,
+  userId,
+  authReady = true,
+}: {
+  children: React.ReactNode;
+  userId?: string;
+  authReady?: boolean;
+}) {
   const [isPremium, setIsPremium] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [showPremiumScreen, setShowPremiumScreen] = useState(false);
+  // RevenueCat ne doit être configuré qu'une seule fois par lancement d'app —
+  // le rappeler à chaque changement de compte (login/logout) perturbe le SDK.
+  const configuredRef = useRef(false);
 
   // Init RevenueCat
   useEffect(() => {
+    // Tant que la session Firebase n'est pas résolue, userId oscille entre
+    // undefined et sa vraie valeur au lancement de l'app. Démarrer RevenueCat
+    // sur cet état transitoire déclenche un logOut() (userId undefined) suivi
+    // de peu par un logIn() (vrai userId) — deux appels concurrents au SDK dont
+    // l'ordre de résolution n'est pas garanti, d'où le premium qui disparaît
+    // au hasard selon lequel des deux répond en dernier. On attend que la
+    // session soit définitivement connue avant de toucher RevenueCat.
+    if (!authReady) return;
+
     // Réinitialise immédiatement à chaque changement de compte
     setIsPremium(false);
     setIsLoading(true);
@@ -61,22 +81,37 @@ export function PremiumProvider({ children, userId }: { children: React.ReactNod
       return;
     }
 
-    Purchases.configure({ apiKey: key });
-
-    if (userId) {
-      Purchases.logIn(userId);
-    } else {
-      Purchases.logOut().catch(() => {});
+    if (!configuredRef.current) {
+      Purchases.configure({ apiKey: key });
+      configuredRef.current = true;
     }
 
+    let cancelled = false;
     Purchases.addCustomerInfoUpdateListener(handleCustomerInfo);
-    loadOfferings();
-    checkCurrentStatus();
 
-    return () => { Purchases.removeCustomerInfoUpdateListener(handleCustomerInfo); };
-  }, [userId]);
+    (async () => {
+      try {
+        // logIn/logOut renvoient déjà le customerInfo à jour pour la nouvelle
+        // identité — on l'utilise directement plutôt que de refaire un appel
+        // getCustomerInfo() séparé, qui pourrait repartir sur l'ancienne identité.
+        const info = userId
+          ? (await Purchases.logIn(userId)).customerInfo
+          : await Purchases.logOut();
+        if (cancelled) return;
+        await applyCustomerInfo(info);
+      } catch {}
+      if (cancelled) return;
+      loadOfferings();
+      setIsLoading(false);
+    })();
 
-  const handleCustomerInfo = useCallback(async (info: CustomerInfo) => {
+    return () => {
+      cancelled = true;
+      Purchases.removeCustomerInfoUpdateListener(handleCustomerInfo);
+    };
+  }, [userId, authReady]);
+
+  const applyCustomerInfo = useCallback(async (info: CustomerInfo) => {
     const devDisabled = await AsyncStorage.getItem(DEV_PREMIUM_DISABLED_KEY);
     if (devDisabled === 'true') return;
     const active = info.entitlements.active['premium'] !== undefined;
@@ -84,20 +119,9 @@ export function PremiumProvider({ children, userId }: { children: React.ReactNod
     if (userId) syncPremiumToFirestore(userId, active, info);
   }, [userId]);
 
-  async function checkCurrentStatus() {
-    try {
-      const devDisabled = await AsyncStorage.getItem(DEV_PREMIUM_DISABLED_KEY);
-      if (devDisabled === 'true') {
-        setIsPremium(false);
-        setIsLoading(false);
-        return;
-      }
-      await Purchases.invalidateCustomerInfoCache();
-      const info = await Purchases.getCustomerInfo();
-      handleCustomerInfo(info);
-    } catch {}
-    setIsLoading(false);
-  }
+  const handleCustomerInfo = useCallback((info: CustomerInfo) => {
+    applyCustomerInfo(info);
+  }, [applyCustomerInfo]);
 
   async function loadOfferings() {
     try {
