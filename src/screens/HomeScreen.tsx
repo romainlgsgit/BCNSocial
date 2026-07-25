@@ -11,19 +11,21 @@ import {
   Animated,
   ImageBackground,
   Alert,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { collection, addDoc, onSnapshot, orderBy, query, limit, getDocs, startAfter } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, orderBy, query, limit, getDocs, startAfter, runTransaction, doc, increment } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Post, PostTag, Team } from '../types';
 import { useFeaturedMatch } from '../context/MatchContext';
 import { useAuth } from '../context/AuthContext';
-import { usePremium } from '../context/PremiumContext';
+import { usePremium, EXTRA_POST_COST } from '../context/PremiumContext';
+import { useStore } from '../context/StoreContext';
 import { useBlock } from '../context/BlockContext';
 import PostCard from '../components/PostCard';
 import CreatePostModal from '../components/CreatePostModal';
@@ -325,7 +327,13 @@ function CreatePostBar({ onPress, userAvatar, userPhoto, dailyCount, dailyLimit 
       </View>
       <View style={{ flex: 1, justifyContent: 'center' }}>
         <Text style={styles.createText}>
-          {limitReached ? 'Limite atteinte · Passe Premium ✨' : 'Quoi de neuf sur le Barça ?'}
+          {limitReached ? (
+            <>
+              Limite atteinte · {EXTRA_POST_COST}
+              <Ionicons name="cash" size={12} color={Colors.dollar} />
+              /post ou Premium ✨
+            </>
+          ) : 'Quoi de neuf sur le Barça ?'}
         </Text>
         {dailyLimit != null && (
           <Text style={styles.createCounter}>
@@ -400,6 +408,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, isAuthenticated } = useAuth();
   const { isPremium, canPost, FREE_DAILY_POST_LIMIT, openPremiumScreen } = usePremium();
+  const { openStore } = useStore();
   const { isAnyBlock } = useBlock();
   const [livePosts, setLivePosts] = useState<Post[]>([]);   // 1re page en temps réel
   const [olderPosts, setOlderPosts] = useState<Post[]>([]); // pages suivantes (chargées ponctuellement)
@@ -410,6 +419,9 @@ export default function HomeScreen() {
   const [activeFilter, setActiveFilter] = useState<Filter>('tous');
 
   const [todayPostCount, setTodayPostCount] = useState(0);
+  // Modale du post payant (au-delà de la limite gratuite) : remplace une Alert
+  // native, qui ne peut pas afficher l'icône dollar de l'app.
+  const [showExtraPostModal, setShowExtraPostModal] = useState(false);
 
   useEffect(() => {
     if (!user) { setTodayPostCount(0); return; }
@@ -481,22 +493,49 @@ export default function HomeScreen() {
   }, [loadingMore, hasMore]);
 
   const handleOpenPost = useCallback(() => {
+    // Au-delà de la limite gratuite (non-Premium) : modale de post payant, qui
+    // affiche l'icône dollar de l'app et oriente vers l'échange si besoin.
     if (!canPost(todayPostCount)) {
-      Alert.alert(
-        'Limite atteinte',
-        `Tu as atteint ta limite de ${FREE_DAILY_POST_LIMIT} posts aujourd'hui. Passe Premium pour poster sans limite !`,
-        [
-          { text: 'Passer Premium', onPress: openPremiumScreen },
-          { text: 'OK', style: 'cancel' },
-        ]
-      );
+      setShowExtraPostModal(true);
       return;
     }
     setShowModal(true);
-  }, [canPost, todayPostCount, openPremiumScreen, FREE_DAILY_POST_LIMIT]);
+  }, [canPost, todayPostCount]);
 
   const handleNewPost = useCallback(async (content: string, tag?: PostTag, imageBase64?: string, mentions?: { id: string; username: string }[]) => {
-    if (!user || !canPost(todayPostCount)) return;
+    if (!user) return;
+
+    // Post au-delà de la limite gratuite (non-Premium) : payant. On débite AVANT de
+    // publier, de façon atomique et sur le solde SERVEUR — se fier au solde local
+    // laisserait poster sans payer si le solde a changé sur un autre appareil. En cas
+    // d'échec, la fenêtre de composition reste ouverte, le brouillon n'est pas perdu.
+    const isPaidPost = !canPost(todayPostCount);
+    if (isPaidPost) {
+      try {
+        await runTransaction(db, async (t) => {
+          const userRef = doc(db, 'users', user.id);
+          const snap = await t.get(userRef);
+          const balance = snap.data()?.dollars ?? 0;
+          if (balance < EXTRA_POST_COST) throw new Error('INSUFFICIENT_DOLLARS');
+          t.update(userRef, { dollars: increment(-EXTRA_POST_COST) });
+        });
+      } catch (e: any) {
+        if (e?.message === 'INSUFFICIENT_DOLLARS') {
+          Alert.alert(
+            'Solde insuffisant',
+            `Il te faut ${EXTRA_POST_COST} dollars du jeu pour ce post. Échange des pièces contre des dollars pour continuer.`,
+            [
+              { text: 'Échanger des pièces', onPress: () => openStore('swap') },
+              { text: 'Annuler', style: 'cancel' },
+            ],
+          );
+        } else {
+          Alert.alert('Post non publié', 'Le paiement n\'a pas abouti, réessaie dans un instant.');
+        }
+        return;
+      }
+    }
+
     setShowModal(false);
     const newCount = todayPostCount + 1;
     setTodayPostCount(newCount);
@@ -606,6 +645,71 @@ export default function HomeScreen() {
           isPremium={isPremium}
         />
       )}
+
+      {/* Post payant au-delà de la limite gratuite : l'icône dollar de l'app (verte)
+          lève l'ambiguïté avec de l'argent réel, et si le solde manque on renvoie
+          vers l'échange pièces → dollars. */}
+      <Modal
+        visible={showExtraPostModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowExtraPostModal(false)}
+      >
+        <View style={styles.extraOverlay}>
+          <View style={styles.extraCard}>
+            <View style={styles.extraIconWrap}>
+              <Ionicons name="cash" size={26} color={Colors.dollar} />
+            </View>
+            <Text style={styles.extraTitle}>Limite de posts atteinte</Text>
+            <Text style={styles.extraDesc}>
+              Tu as utilisé tes {FREE_DAILY_POST_LIMIT} posts gratuits du jour. Chaque post
+              supplémentaire coûte {EXTRA_POST_COST}
+              <Ionicons name="cash" size={13} color={Colors.dollar} /> en dollars du jeu.
+            </Text>
+
+            <View style={styles.extraBalance}>
+              <Text style={styles.extraBalanceLabel}>Ton solde</Text>
+              <View style={styles.extraBalanceVal}>
+                <Ionicons name="cash" size={14} color={Colors.dollar} />
+                <Text style={styles.extraBalanceNum}>{user?.dollars ?? 0}</Text>
+              </View>
+            </View>
+
+            {(user?.dollars ?? 0) >= EXTRA_POST_COST ? (
+              <TouchableOpacity
+                style={styles.extraPrimary}
+                activeOpacity={0.85}
+                onPress={() => { setShowExtraPostModal(false); setShowModal(true); }}
+              >
+                <Text style={styles.extraPrimaryText}>Poster pour {EXTRA_POST_COST} </Text>
+                <Ionicons name="cash" size={15} color="#04170D" />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.extraPrimary}
+                activeOpacity={0.85}
+                onPress={() => { setShowExtraPostModal(false); openStore('swap'); }}
+              >
+                <Ionicons name="swap-horizontal" size={16} color="#04170D" />
+                <Text style={styles.extraPrimaryText}>  Échanger des pièces en dollars</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.extraPremium}
+              activeOpacity={0.85}
+              onPress={() => { setShowExtraPostModal(false); openPremiumScreen(); }}
+            >
+              <Ionicons name="diamond" size={14} color={Colors.gold} />
+              <Text style={styles.extraPremiumText}>  Passer Premium · posts illimités</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={() => setShowExtraPostModal(false)} activeOpacity={0.7}>
+              <Text style={styles.extraCancel}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -957,5 +1061,57 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     letterSpacing: 0.5,
+  },
+
+  // ─── Modale post payant ───────────────────────────────
+  extraOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center', padding: 28,
+  },
+  extraCard: {
+    width: '100%', maxWidth: 380,
+    backgroundColor: '#15151C',
+    borderRadius: 22, borderWidth: 1, borderColor: '#24242F',
+    padding: 22, alignItems: 'center',
+  },
+  extraIconWrap: {
+    width: 54, height: 54, borderRadius: 27,
+    backgroundColor: Colors.dollar + '24',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+  },
+  extraTitle: { color: '#fff', fontSize: 18, fontWeight: '900', textAlign: 'center' },
+  extraDesc: {
+    color: '#9A9AA8', fontSize: 13, lineHeight: 19,
+    textAlign: 'center', marginTop: 8, marginBottom: 16,
+  },
+  extraBalance: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12, paddingVertical: 10, paddingHorizontal: 14,
+    marginBottom: 16,
+  },
+  extraBalanceLabel: { color: '#7A7A88', fontSize: 12, fontWeight: '700' },
+  extraBalanceVal: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  extraBalanceNum: { color: Colors.dollar, fontSize: 15, fontWeight: '900' },
+  extraPrimary: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: Colors.dollar,
+    borderRadius: BorderRadius.full,
+    paddingVertical: 13, marginBottom: 10,
+  },
+  extraPrimaryText: { color: '#04170D', fontSize: 15, fontWeight: '900' },
+  extraPremium: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: BorderRadius.full,
+    paddingVertical: 12, marginBottom: 6,
+  },
+  extraPremiumText: { color: Colors.gold, fontSize: 14, fontWeight: '800' },
+  extraCancel: {
+    color: '#7A7A88', fontSize: 13, fontWeight: '700',
+    marginTop: 8, paddingVertical: 6,
   },
 });

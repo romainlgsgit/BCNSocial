@@ -6,6 +6,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, FontSize, BorderRadius, Spacing } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { useGame, inviteMode } from '../context/GameContext';
+import { useStore } from '../context/StoreContext';
+import AddCoinsButton from '../components/AddCoinsButton';
 
 type GameMode = 'football' | 'penalty';
 
@@ -70,6 +72,7 @@ export default function GamesHubScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { pendingInvites } = useGame();
+  const { openStore } = useStore();
 
   // Les défis des deux jeux 1v1 arrivent dans le même flux → un badge par jeu.
   const inviteCounts = useMemo(() => {
@@ -89,12 +92,13 @@ export default function GamesHubScreen() {
       </LinearGradient>
 
       {user && (
-        <View style={styles.coinsRow}>
+        <TouchableOpacity style={styles.coinsRow} onPress={() => openStore()} activeOpacity={0.8}>
           <Ionicons name="wallet-outline" size={16} color={Colors.gold} />
           <Text style={styles.coinsText}>
             <Text style={styles.coinsValue}>{user.coins ?? 0}</Text>  pièces disponibles
           </Text>
-        </View>
+          <AddCoinsButton size={20} />
+        </TouchableOpacity>
       )}
 
       <ScrollView
@@ -115,8 +119,8 @@ export default function GamesHubScreen() {
           >
             <View style={styles.featuredBody}>
               <View style={styles.featuredTag}>
-                <Ionicons name="star" size={11} color={FEATURED.accent} />
-                <Text style={[styles.featuredTagText, { color: FEATURED.accent }]}>NOUVEAU</Text>
+                <Ionicons name="time-outline" size={12} color={FEATURED.accent} />
+                <Text style={[styles.featuredTagText, { color: FEATURED.accent }]}>PROCHAINEMENT</Text>
               </View>
               <Text style={styles.featuredTitle}>{FEATURED.title}</Text>
               <Text style={styles.featuredDesc}>{FEATURED.desc}</Text>
@@ -180,7 +184,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold + '12',
     borderWidth: 1,
     borderColor: Colors.gold + '30',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    // Moins d'air à droite : la pastille « + » apporte déjà sa propre masse visuelle.
+    paddingRight: 8,
     paddingVertical: 8,
     borderRadius: BorderRadius.full,
     marginTop: 8,

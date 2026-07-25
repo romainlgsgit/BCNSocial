@@ -11,6 +11,7 @@ import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { Post, PostTag } from '../types';
 import CommentsModal from './CommentsModal';
 import VerifiedBadge from './VerifiedBadge';
+import { renderWithMentions } from '../utils/mentions';
 
 const TAG_COLORS: Partial<Record<PostTag, string>> = {
   match: Colors.secondary,
@@ -142,27 +143,16 @@ export default function PostCard({ post, onDelete }: { post: Post; onDelete?: ()
         ) : null}
       </View>
 
-      {/* Content */}
+      {/* Content — @mentions en bleu cliquables + liens (TikTok/YouTube…) cliquables.
+          Les liens sont activés pour les PUBLICATIONS uniquement (pas les commentaires). */}
       {post.content ? (
         <Text style={styles.content}>
-          {post.content.split(/(@\w+)/g).map((part, i) => {
-            if (part.startsWith('@')) {
-              const username = part.slice(1);
-              const mentioned = post.mentionedUsers?.find(m => m.username === username);
-              if (mentioned) {
-                return (
-                  <Text
-                    key={i}
-                    style={styles.mention}
-                    onPress={() => navigation.navigate('UserProfile', { userId: mentioned.id })}
-                  >
-                    {part}
-                  </Text>
-                );
-              }
-            }
-            return <Text key={i}>{part}</Text>;
-          })}
+          {renderWithMentions(
+            post.content,
+            post.mentionedUsers,
+            (userId) => navigation.navigate('UserProfile', { userId }),
+            { linkifyUrls: true },
+          )}
         </Text>
       ) : null}
 
@@ -286,10 +276,6 @@ const styles = StyleSheet.create({
     color: '#E8E8E8',
     lineHeight: 22,
     marginBottom: 10,
-  },
-  mention: {
-    color: '#4A9EFF',
-    fontWeight: '600',
   },
   postImage: {
     width: '100%',

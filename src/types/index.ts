@@ -74,6 +74,8 @@ export interface User {
   mentionNotifEnabled?: boolean;
   lastUsernameChange?: string;
   coins: number;
+  /** Monnaie obtenue UNIQUEMENT en échangeant des pièces (cf. config/store) */
+  dollars: number;
   points: number;
   /** Série de quiz recopiée depuis `quizResults` — seule copie lisible par les autres
    *  membres, donc la source du badge affiché sur l'avatar. Peut être périmée :
@@ -249,5 +251,6 @@ export interface Comment {
   verified?: boolean;
   goldVerified?: boolean;
   content: string;
+  mentionedUsers?: MentionUser[];
   createdAt: string;
 }

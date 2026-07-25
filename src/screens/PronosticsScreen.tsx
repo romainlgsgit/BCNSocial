@@ -22,6 +22,8 @@ import { useProno, BetPrediction, PronoMatch, UserBet } from '../context/PronoCo
 import { Team } from '../types';
 import AdBanner from '../components/AdBanner';
 import RewardedAdButton from '../components/RewardedAdButton';
+import AddCoinsButton from '../components/AddCoinsButton';
+import { useStore } from '../context/StoreContext';
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
@@ -61,6 +63,7 @@ function PronoCard({
 }) {
   const [selected, setSelected] = useState<BetPrediction | null>(null);
   const [amount, setAmount] = useState('');
+  const { openStore } = useStore();
 
   const { odds, effectiveStatus } = match;
   const hasAllOdds = odds.home != null && odds.draw != null && odds.away != null;
@@ -80,7 +83,15 @@ function PronoCard({
       return;
     }
     if (amountNum > userCoins) {
-      Alert.alert('Solde insuffisant', `Tu n'as que ${userCoins} 🪙 disponibles`);
+      // Solde insuffisant : c'est le moment le plus utile pour proposer la boutique.
+      Alert.alert(
+        'Solde insuffisant',
+        `Tu n'as que ${userCoins} 🪙 disponibles`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          { text: 'Boutique', onPress: () => openStore() },
+        ]
+      );
       return;
     }
     Alert.alert(
@@ -312,6 +323,7 @@ interface Props {
 export default function PronosticsScreen({ onNavigateToProfile }: Props) {
   const { isAuthenticated, user } = useAuth();
   const { pronoMatches, isLoading, getBet, placeBet } = useProno();
+  const { openStore } = useStore();
   const insets = useSafeAreaInsets();
 
   if (!isAuthenticated) {
@@ -341,9 +353,10 @@ export default function PronosticsScreen({ onNavigateToProfile }: Props) {
           <Ionicons name="trophy" size={20} color={Colors.gold} />
           <Text style={styles.headerTitle}>Pronostics</Text>
         </View>
-        <View style={styles.coinsChip}>
+        <TouchableOpacity style={styles.coinsChip} onPress={() => openStore()} activeOpacity={0.8}>
           <Text style={styles.coinsText}>🪙 {user!.coins}</Text>
-        </View>
+          <AddCoinsButton size={18} />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -407,9 +420,14 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: FontSize.xl, fontWeight: '800', color: Colors.text },
 
   coinsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.full,
-    paddingHorizontal: Spacing.md,
+    paddingLeft: Spacing.md,
+    // Moins d'air à droite : la pastille « + » apporte déjà sa propre masse visuelle.
+    paddingRight: Spacing.xs,
     paddingVertical: Spacing.xs,
     borderWidth: 1,
     borderColor: Colors.gold,

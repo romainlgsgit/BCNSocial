@@ -18,14 +18,17 @@ export const PRODUCT_IDS = {
   annual:  'bcnsocial_premium_yearly',   // 19,99€/an
 };
 
-// Bonus pièces au renouvellement
+// Bonus au renouvellement (crédités ensemble, même déclencheur mensuel)
 export const PREMIUM_MONTHLY_COINS = 500;
+export const PREMIUM_MONTHLY_DOLLARS = 20;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface PremiumContextType {
   isPremium: boolean;
   isLoading: boolean;
+  /** RevenueCat est configuré : les autres achats (boutique de pièces) peuvent démarrer. */
+  revenueCatReady: boolean;
   packages: PurchasesPackage[];
   purchasePackage: (pkg: PurchasesPackage) => Promise<boolean>;
   restorePurchases: () => Promise<boolean>;
@@ -40,6 +43,9 @@ interface PremiumContextType {
 const PremiumContext = createContext<PremiumContextType | null>(null);
 
 export const FREE_DAILY_POST_LIMIT = 5;
+// Au-delà des posts gratuits, un non-Premium peut continuer en payant ce montant
+// (en dollars du jeu) pour CHAQUE post supplémentaire.
+export const EXTRA_POST_COST = 5;
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +62,7 @@ export function PremiumProvider({
   const [isLoading, setIsLoading] = useState(true);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [showPremiumScreen, setShowPremiumScreen] = useState(false);
+  const [revenueCatReady, setRevenueCatReady] = useState(false);
   // RevenueCat ne doit être configuré qu'une seule fois par lancement d'app —
   // le rappeler à chaque changement de compte (login/logout) perturbe le SDK.
   const configuredRef = useRef(false);
@@ -85,6 +92,7 @@ export function PremiumProvider({
       Purchases.configure({ apiKey: key });
       configuredRef.current = true;
     }
+    setRevenueCatReady(true);
 
     let cancelled = false;
     Purchases.addCustomerInfoUpdateListener(handleCustomerInfo);
@@ -181,6 +189,7 @@ export function PremiumProvider({
     <PremiumContext.Provider value={{
       isPremium,
       isLoading,
+      revenueCatReady,
       packages,
       purchasePackage,
       restorePurchases,
@@ -231,6 +240,7 @@ async function syncPremiumToFirestore(userId: string, isPremium: boolean, info: 
 
         if (isNewPurchase || (lastBonus !== thisMonth && bonusUnlocked)) {
           updates.coins = (data.coins ?? 0) + PREMIUM_MONTHLY_COINS;
+          updates.dollars = (data.dollars ?? 0) + PREMIUM_MONTHLY_DOLLARS;
           updates.lastPremiumBonusDate = thisMonth;
         }
       }

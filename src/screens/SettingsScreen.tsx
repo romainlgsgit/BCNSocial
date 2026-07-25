@@ -354,6 +354,18 @@ export default function SettingsScreen() {
           )}
         </Section>
 
+        {/* Aide & Support */}
+        <Section title="Aide & Support">
+          <SettingRow
+            icon="help-circle-outline"
+            iconColor="#4A9EFF"
+            label="Centre d'aide"
+            sublabel="FAQ, recherche et contact du support"
+            onPress={() => navigation.navigate('Help')}
+            showArrow
+          />
+        </Section>
+
         {/* Compte */}
         <Section title="Compte">
           {Platform.OS === 'ios' && (

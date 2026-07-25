@@ -36,6 +36,8 @@ import { getLevelInfo } from '../utils/levels';
 import { useMatchLabels, formatMatchLabel } from '../utils/matchLabels';
 import { isBetExpired, MAX_SETTLED_BETS } from '../context/PronoContext';
 import { usePremium } from '../context/PremiumContext';
+import { useStore } from '../context/StoreContext';
+import AddCoinsButton from '../components/AddCoinsButton';
 
 type ProfileTabType = 'publications' | 'pronos' | 'notes';
 
@@ -48,6 +50,7 @@ const PROFILE_TABS: { key: ProfileTabType; label: string; icon: any; iconOutline
 function ProfileDashboard() {
   const { user, logout, deleteAccount, isAdmin, updatePhoto } = useAuth();
   const { isPremium, openPremiumScreen } = usePremium();
+  const { openStore } = useStore();
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [myPosts, setMyPosts] = useState<Post[]>([]);
@@ -256,11 +259,19 @@ function ProfileDashboard() {
         </View>
         <Text style={styles.profileEmail}>{user.email}</Text>
 
-        {/* Pièces */}
-        <View style={styles.coinsPill}>
-          <Ionicons name="wallet" size={16} color={Colors.gold} />
-          <Text style={styles.coinsValue}>{user.coins ?? 0}</Text>
-          <Text style={styles.coinsLabel}>pièces</Text>
+        {/* Les deux monnaies — tout le bloc ouvre la boutique, le « + » sert de repère */}
+        <View style={styles.walletRow}>
+          <TouchableOpacity style={styles.coinsPill} onPress={() => openStore()} activeOpacity={0.8}>
+            <Ionicons name="wallet" size={16} color={Colors.gold} />
+            <Text style={styles.coinsValue}>{user.coins ?? 0}</Text>
+            <Text style={styles.coinsLabel}>pièces</Text>
+            <AddCoinsButton size={20} style={{ marginLeft: 2 }} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.dollarsPill} onPress={() => openStore('swap')} activeOpacity={0.8}>
+            <Ionicons name="cash" size={16} color={Colors.dollar} />
+            <Text style={styles.dollarsValue}>{user.dollars ?? 0}</Text>
+            <Text style={styles.dollarsLabel}>$</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Compteurs */}
@@ -281,8 +292,12 @@ function ProfileDashboard() {
           </View>
         </View>
 
-        {/* Premium / Admin */}
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        {/* Boutique / Premium / Admin */}
+        <View style={styles.actionsRow}>
+          <TouchableOpacity style={styles.storeBtn} onPress={() => openStore()} activeOpacity={0.85}>
+            <Ionicons name="bag-handle" size={13} color={Colors.gold} />
+            <Text style={styles.storeBtnText}>Boutique</Text>
+          </TouchableOpacity>
           {!isPremium && (
             <TouchableOpacity style={styles.premiumBtn} onPress={openPremiumScreen} activeOpacity={0.85}>
               <Ionicons name="diamond" size={13} color={Colors.gold} />
@@ -527,11 +542,28 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     borderColor: 'rgba(237,187,0,0.4)',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    // Moins d'air à droite : la pastille « + » apporte déjà sa propre masse visuelle.
+    paddingRight: 8,
     paddingVertical: 8,
   },
   coinsValue: { fontSize: 18, fontWeight: '900', color: Colors.gold },
   coinsLabel: { fontSize: 13, color: 'rgba(237,187,0,0.7)', fontWeight: '600' },
+
+  walletRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dollarsPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(53,208,127,0.15)',
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    borderColor: 'rgba(53,208,127,0.4)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  dollarsValue: { fontSize: 18, fontWeight: '900', color: Colors.dollar },
+  dollarsLabel: { fontSize: 13, color: 'rgba(53,208,127,0.7)', fontWeight: '600' },
 
   countsContainer: {
     flexDirection: 'row',
@@ -549,6 +581,19 @@ const styles = StyleSheet.create({
   countLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, fontWeight: '600' },
   countSep: { width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.15)' },
 
+  // Trois boutons possibles (Boutique / Premium / Admin) : on autorise le retour
+  // à la ligne pour que le libellé « Premium actif ✨ » ne déborde pas de l'écran.
+  actionsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
+  // Fond neutre, accent doré : la boutique reste identifiable « pièces » sans
+  // rivaliser visuellement avec le bouton Premium, qui garde le plein doré.
+  storeBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: BorderRadius.full,
+    paddingVertical: 8, paddingHorizontal: 16,
+    borderWidth: 1, borderColor: 'rgba(237,187,0,0.35)',
+  },
+  storeBtnText: { color: Colors.gold, fontWeight: '800', fontSize: FontSize.sm },
   premiumBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(237,187,0,0.15)',

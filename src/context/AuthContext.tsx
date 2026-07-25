@@ -254,7 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileUnsub = onSnapshot(userRef, (snap) => {
         if (!snap.exists()) {
           // Merge : register écrit le pseudo choisi en parallèle, on ne l'écrase pas.
-          const base: Record<string, unknown> = { coins: 200, points: 0, avatar: '🦁' };
+          const base: Record<string, unknown> = { coins: 200, dollars: 10, points: 0, avatar: '🦁' };
           if (displayName) base.username = displayName;
           setDoc(userRef, base, { merge: true }).catch(() => {});
           return;
@@ -299,6 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           mentionNotifEnabled: data.mentionNotifEnabled ?? false,
           lastUsernameChange: data.lastUsernameChange ?? undefined,
           coins: data.coins ?? 200,
+          dollars: data.dollars ?? 0,
           points: data.points ?? 0,
           // Série du quiz + visibilité du badge (absent = badge affiché)
           quizStreak: data.quizStreak ?? 0,
@@ -382,7 +383,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // onAuthStateChanged, déclenché avant, y avait déjà mis la partie email.
       await setDoc(
         doc(db, 'users', cred.user.uid),
-        { username: trimmedUsername, coins: 200, points: 0, avatar: '🦁' },
+        { username: trimmedUsername, coins: 200, dollars: 10, points: 0, avatar: '🦁' },
         { merge: true },
       ).catch(() => {});
 
@@ -404,7 +405,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // propose de le renvoyer.
       await sendVerificationEmail(cred.user).catch(() => {});
 
-      setUser((prev) => (prev ? { ...prev, username: trimmedUsername, coins: 200 } : prev));
+      setUser((prev) => (prev ? { ...prev, username: trimmedUsername, coins: 200, dollars: 10 } : prev));
       return { success: true };
     } catch (e) {
       console.error('Register error:', e);
@@ -435,7 +436,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Écriture autoritaire du pseudo (même raison qu'à l'inscription classique).
           await setDoc(
             doc(db, 'users', cred.user.uid),
-            { username: fallback, coins: 200, points: 0, avatar: '🦁' },
+            { username: fallback, coins: 200, dollars: 10, points: 0, avatar: '🦁' },
             { merge: true },
           ).catch(() => {});
           if (cred.user.email) {

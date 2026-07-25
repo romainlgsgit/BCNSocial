@@ -89,50 +89,42 @@ export const MATCHES: Match[] = [
 ];
 
 // ─── Squad FC Barcelona 2026/27 ───────────────────────────────────────────────
+//
+// ⚠️ FALLBACK UNIQUEMENT. La source de vérité est la collection Firestore `players`
+// (éditée via l'écran Admin) que PlayersContext charge au premier besoin. Cette liste
+// ne s'affiche QUE si cette lecture échoue. Les ids doivent rester identiques à ceux de
+// Firestore (type `p_1784...`) — c'est aussi la clé des fiches (voir data/playerProfiles.ts).
+// Resynchronisée le 2026-07-25 sur l'effectif réel (21 joueurs).
 
 export const PLAYERS: Player[] = [
   // ── Gardiens ──
-  { id: 'p_garcia',    name: 'Joan García',        position: 'GK',  number: 25, photo: '🧤', nationality: '🇪🇸', averageRating: 7.8, totalVotes: 1120 },
-  { id: 'p_szczesny',  name: 'Wojciech Szczęsny',  position: 'GK',  number: 13, photo: '🧤', nationality: '🇵🇱', averageRating: 7.9, totalVotes: 890 },
-  { id: 'p_kochen',    name: 'Diego Kochen',        position: 'GK',  number: 26, photo: '🧤', nationality: '🇦🇷', averageRating: 6.8, totalVotes: 120 },
-  { id: 'p_aller',     name: 'Eder Aller',          position: 'GK',  number: 28, photo: '🧤', nationality: '🇪🇸', averageRating: 6.5, totalVotes: 80 },
+  { id: 'p_garcia',        name: 'Joan García',        position: 'GK',  number: 13, photo: '🧤', nationality: '🇪🇸', averageRating: 7.8, totalVotes: 1120 },
+  { id: 'p_szczesny',      name: 'Wojciech Szczęsny',  position: 'GK',  number: 25, photo: '🧤', nationality: '🇵🇱', averageRating: 7.9, totalVotes: 890 },
 
   // ── Défenseurs ──
-  { id: 'p_ericgarcia',  name: 'Éric García',          position: 'DEF', number: 24, photo: '🛡️', nationality: '🇪🇸', averageRating: 7.5, totalVotes: 560 },
-  { id: 'p_cancelo',    name: 'João Cancelo',          position: 'DEF', number: 2,  photo: '🛡️', nationality: '🇵🇹', averageRating: 7.7, totalVotes: 980 },
-  { id: 'p_balde',      name: 'Alejandro Balde',       position: 'DEF', number: 3,  photo: '🛡️', nationality: '🇪🇸', averageRating: 7.5, totalVotes: 870 },
-  { id: 'p_cubarsi',    name: 'Pau Cubarsí',           position: 'DEF', number: 33, photo: '🛡️', nationality: '🇪🇸', averageRating: 8.2, totalVotes: 1340 },
-  { id: 'p_christensen',name: 'Andreas Christensen',   position: 'DEF', number: 15, photo: '🛡️', nationality: '🇩🇰', averageRating: 7.4, totalVotes: 620 },
-  { id: 'p_gmartin',    name: 'Gerard Martín',         position: 'DEF', number: 12, photo: '🛡️', nationality: '🇪🇸', averageRating: 7.2, totalVotes: 480 },
-  { id: 'p_kounde',     name: 'Jules Koundé',          position: 'DEF', number: 23, photo: '🛡️', nationality: '🇫🇷', averageRating: 8.0, totalVotes: 1050 },
-  { id: 'p_torrents',   name: 'Jofre Torrents',        position: 'DEF', number: 31, photo: '🛡️', nationality: '🇪🇸', averageRating: 6.5, totalVotes: 60 },
-  { id: 'p_cortes',     name: 'Álvaro Cortés',         position: 'DEF', number: 32, photo: '🛡️', nationality: '🇪🇸', averageRating: 6.3, totalVotes: 40 },
-  { id: 'p_sdominguez', name: 'Sergi Domínguez',       position: 'DEF', number: 38, photo: '🛡️', nationality: '🇪🇸', averageRating: 6.2, totalVotes: 30 },
-  { id: 'p_espart',     name: 'Xavi Espart',           position: 'DEF', number: 36, photo: '🛡️', nationality: '🇪🇸', averageRating: 6.4, totalVotes: 35 },
-  { id: 'p_farre',      name: 'Landry Farré',          position: 'DEF', number: 39, photo: '🛡️', nationality: '🇫🇷', averageRating: 6.3, totalVotes: 25 },
+  { id: 'p_1784397073181', name: 'Alejandro Balde',      position: 'DEF', number: 3,  photo: '🛡️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397174908', name: 'Ronald Araújo',        position: 'DEF', number: 4,  photo: '🛡️', nationality: '🇺🇾', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397200103', name: 'Pau Cubarsí',          position: 'DEF', number: 5,  photo: '🛡️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397223052', name: 'Andreas Christensen',  position: 'DEF', number: 15, photo: '🛡️', nationality: '🇩🇰', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397313079', name: 'Gerard Martín',        position: 'DEF', number: 18, photo: '🛡️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397342251', name: 'Jules Koundé',         position: 'DEF', number: 23, photo: '🛡️', nationality: '🇫🇷', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397371873', name: 'Héctor Fort',          position: 'DEF', number: 32, photo: '🛡️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
 
   // ── Milieux ──
-  { id: 'p_pedri',       name: 'Pedri',            position: 'MID', number: 8,  photo: '⚙️', nationality: '🇪🇸', averageRating: 8.6, totalVotes: 2100 },
-  { id: 'p_gavi',        name: 'Gavi',             position: 'MID', number: 6,  photo: '⚙️', nationality: '🇪🇸', averageRating: 8.3, totalVotes: 1950 },
-  { id: 'p_fermin',      name: 'Fermín López',     position: 'MID', number: 16, photo: '⚙️', nationality: '🇪🇸', averageRating: 7.8, totalVotes: 1100 },
-  { id: 'p_casado',      name: 'Marc Casadó',      position: 'MID', number: 14, photo: '⚙️', nationality: '🇪🇸', averageRating: 7.7, totalVotes: 920 },
-  { id: 'p_olmo',        name: 'Dani Olmo',        position: 'MID', number: 20, photo: '⚙️', nationality: '🇪🇸', averageRating: 8.0, totalVotes: 1450 },
-  { id: 'p_dejong',      name: 'Frenkie de Jong',  position: 'MID', number: 21, photo: '⚙️', nationality: '🇳🇱', averageRating: 7.9, totalVotes: 1560 },
-  { id: 'p_bernal',      name: 'Marc Bernal',      position: 'MID', number: 22, photo: '⚙️', nationality: '🇪🇸', averageRating: 7.5, totalVotes: 340 },
-  { id: 'p_drofernandez',name: 'Dro Fernández',    position: 'MID', number: 5,  photo: '⚙️', nationality: '🇪🇸', averageRating: 6.5, totalVotes: 67 },
-  { id: 'p_guille',      name: 'Guille Fernández', position: 'MID', number: 30, photo: '⚙️', nationality: '🇪🇸', averageRating: 6.2, totalVotes: 30 },
-  { id: 'p_juanhdez',    name: 'Juan Hernández',   position: 'MID', number: 41, photo: '⚙️', nationality: '🇪🇸', averageRating: 6.0, totalVotes: 25 },
-  { id: 'p_tommy',       name: 'Tommy Marqués',    position: 'MID', number: 43, photo: '⚙️', nationality: '🇪🇸', averageRating: 6.1, totalVotes: 20 },
-  { id: 'p_danirod',     name: 'Dani Rodríguez',   position: 'MID', number: 46, photo: '⚙️', nationality: '🇪🇸', averageRating: 6.0, totalVotes: 15 },
+  { id: 'p_1784397813688', name: 'Gavi',            position: 'MID', number: 6,  photo: '⚙️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397829431', name: 'Pedri',           position: 'MID', number: 8,  photo: '⚙️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397843876', name: 'Fermín López',    position: 'MID', number: 16, photo: '⚙️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397865345', name: 'Marc Casadó',     position: 'MID', number: 17, photo: '⚙️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397919478', name: 'Dani Olmo',       position: 'MID', number: 20, photo: '⚙️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397936652', name: 'Frenkie de Jong', position: 'MID', number: 21, photo: '⚙️', nationality: '🇳🇱', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784397959400', name: 'Marc Bernal',     position: 'MID', number: 22, photo: '⚙️', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
 
   // ── Attaquants ──
-  { id: 'p_rashford',      name: 'Marcus Rashford',    position: 'ATT', number: 17, photo: '⚡', nationality: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', averageRating: 7.6, totalVotes: 890 },
-  { id: 'p_ferrantorres',  name: 'Ferran Torres',      position: 'ATT', number: 7,  photo: '⚡', nationality: '🇪🇸', averageRating: 7.7, totalVotes: 1100 },
-  { id: 'p_lewy',          name: 'Robert Lewandowski', position: 'ATT', number: 9,  photo: '⚡', nationality: '🇵🇱', averageRating: 8.4, totalVotes: 2300 },
-  { id: 'p_yamal',         name: 'Lamine Yamal',       position: 'ATT', number: 10, photo: '⚡', nationality: '🇪🇸', averageRating: 9.1, totalVotes: 3200 },
-  { id: 'p_raphinha',      name: 'Raphinha',           position: 'ATT', number: 11, photo: '⚡', nationality: '🇧🇷', averageRating: 8.8, totalVotes: 2450 },
-  { id: 'p_bardghji',      name: 'Roony Bardghji',     position: 'ATT', number: 19, photo: '⚡', nationality: '🇸🇪', averageRating: 7.2, totalVotes: 420 },
-  { id: 'p_tonifernandez', name: 'Toni Fernández',     position: 'ATT', number: 29, photo: '⚡', nationality: '🇪🇸', averageRating: 6.3, totalVotes: 25 },
+  { id: 'p_1784398579427', name: 'Ferran Torres',   position: 'ATT', number: 7,  photo: '⚽', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784398599150', name: 'Lamine Yamal',    position: 'ATT', number: 10, photo: '⚽', nationality: '🇪🇸', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784398649323', name: 'Raphinha',        position: 'ATT', number: 11, photo: '⚽', nationality: '🇧🇷', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784398679344', name: 'Roony Bardghji',  position: 'ATT', number: 19, photo: '⚽', nationality: '🇸🇪', averageRating: 0, totalVotes: 0 },
+  { id: 'p_1784398707818', name: 'Anthony Gordon',  position: 'ATT', number: 99, photo: '⚽', nationality: '🏴󠁧󠁢󠁥󠁮󠁧󠁿', averageRating: 0, totalVotes: 0 },
 ];
 
 // ─── News ─────────────────────────────────────────────────────────────────────

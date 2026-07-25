@@ -8,7 +8,9 @@
     "ios": "expo run:ios",
     "ios:sim": "expo run:ios --device 61F956A4-F344-4FCC-B26D-ED3CA70884CD",
     "ios:sim2": "bash scripts/run-sim2.sh",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "ota:prod": "eas update --channel production",
+    "ota:preview": "eas update --channel preview"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",

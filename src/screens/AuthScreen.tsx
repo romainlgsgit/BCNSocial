@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import RulesModal from '../components/RulesModal';
 
 type Tab = 'login' | 'register';
 
@@ -205,6 +206,8 @@ export default function AuthScreen() {
   const [error, setError] = useState('');
   const [forgotVisible, setForgotVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [rulesVisible, setRulesVisible] = useState(false);
 
   const handleSubmit = async () => {
     setError('');
@@ -214,6 +217,10 @@ export default function AuthScreen() {
     }
     if (tab === 'register' && !username) {
       setError('Choisis un pseudo.');
+      return;
+    }
+    if (tab === 'register' && !acceptedTerms) {
+      setError('Tu dois accepter le règlement pour créer un compte.');
       return;
     }
 
@@ -330,6 +337,25 @@ export default function AuthScreen() {
               </TouchableOpacity>
             )}
 
+            {tab === 'register' && (
+              <TouchableOpacity
+                style={styles.termsRow}
+                onPress={() => setAcceptedTerms((v) => !v)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.checkbox, acceptedTerms && styles.checkboxChecked]}>
+                  {acceptedTerms && <Ionicons name="checkmark" size={14} color="#fff" />}
+                </View>
+                <Text style={styles.termsText}>
+                  J'ai lu et j'accepte le{' '}
+                  <Text style={styles.termsLink} onPress={() => setRulesVisible(true)}>
+                    règlement et la politique de confidentialité
+                  </Text>
+                  {' '}de BCN Social.
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {error !== '' && (
               <View style={styles.errorBox}>
                 <Ionicons name="warning-outline" size={15} color={Colors.error} />
@@ -338,9 +364,9 @@ export default function AuthScreen() {
             )}
 
             <TouchableOpacity
-              style={styles.submitBtn}
+              style={[styles.submitBtn, tab === 'register' && !acceptedTerms && styles.submitBtnDisabled]}
               onPress={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || (tab === 'register' && !acceptedTerms)}
               activeOpacity={0.85}
             >
               {submitting ? (
@@ -368,6 +394,11 @@ export default function AuthScreen() {
                 />
               </>
             )}
+
+            <Text style={styles.footerConsent}>
+              En créant un compte ou en te connectant, tu acceptes notre{' '}
+              <Text style={styles.termsLink} onPress={() => setRulesVisible(true)}>règlement</Text>.
+            </Text>
           </View>
         </ScrollView>
 
@@ -381,6 +412,7 @@ export default function AuthScreen() {
           email={pendingAppleLinkEmail ?? ''}
           onForgotPassword={handleForgotFromAppleLink}
         />
+        <RulesModal visible={rulesVisible} onClose={() => setRulesVisible(false)} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -494,10 +526,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: Spacing.sm,
   },
+  submitBtnDisabled: {
+    opacity: 0.45,
+  },
   submitBtnText: {
     color: Colors.text,
     fontSize: FontSize.md,
     fontWeight: '800',
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingVertical: 2,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  termsText: {
+    flex: 1,
+    color: Colors.textSecondary,
+    fontSize: FontSize.sm,
+    lineHeight: 19,
+  },
+  termsLink: {
+    color: Colors.primary,
+    fontWeight: '700',
+  },
+  footerConsent: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    textAlign: 'center',
+    lineHeight: 17,
+    marginTop: Spacing.md,
   },
   forgotLink: {
     alignSelf: 'flex-end',

@@ -14,6 +14,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   collection,
@@ -33,6 +34,10 @@ import { usePremium } from '../context/PremiumContext';
 import { Comment } from '../types';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import VerifiedBadge from './VerifiedBadge';
+import { renderWithMentions, searchUsersByPrefix } from '../utils/mentions';
+import { sendMentionNotifications } from '../utils/notifications';
+
+interface MentionUser { id: string; username: string; avatar: string; photoBase64?: string }
 
 function formatTimeAgo(dateStr: string): string {
   const now = new Date();
@@ -58,11 +63,47 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
   const { user, isAdmin } = useAuth();
   const { isPremium } = usePremium();
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [mentions, setMentions] = useState<MentionUser[]>([]);
+  const [mentionSearch, setMentionSearch] = useState<string | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionUser[]>([]);
+
+  // Détecte un @mention en cours de frappe (dernier mot commençant par @).
+  useEffect(() => {
+    const words = text.split(/\s/);
+    const last = words[words.length - 1];
+    if (last.startsWith('@') && last.length > 1) setMentionSearch(last.slice(1));
+    else { setMentionSearch(null); setMentionSuggestions([]); }
+  }, [text]);
+
+  // Cherche les utilisateurs correspondants — recherche par PRÉFIXE, insensible à la casse
+  // (cf. searchUsersByPrefix), avec un petit debounce pour limiter les lectures.
+  useEffect(() => {
+    if (!mentionSearch || mentionSearch.trim().length < 1) { setMentionSuggestions([]); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      searchUsersByPrefix(mentionSearch, user?.id)
+        .then(res => { if (!cancelled) setMentionSuggestions(res); })
+        .catch(() => {});
+    }, 220);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [mentionSearch]);
+
+  const selectMention = (mentioned: MentionUser) => {
+    const parts = text.split(/(\s)/);
+    parts[parts.length - 1] = `@${mentioned.username} `;
+    setText(parts.join(''));
+    setMentions(prev => prev.find(m => m.id === mentioned.id) ? prev : [...prev, mentioned]);
+    setMentionSuggestions([]);
+    setMentionSearch(null);
+  };
+
+  const goToProfile = (userId: string) => { onClose(); navigation.navigate('UserProfile', { userId }); };
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -99,7 +140,14 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
     if (!user || !text.trim() || submitting) return;
     setSubmitting(true);
     const content = text.trim();
+    // Ne garde que les mentions dont le @pseudo est encore présent dans le texte final.
+    const activeMentions = mentions
+      .filter(m => content.includes(`@${m.username}`))
+      .map(m => ({ id: m.id, username: m.username }));
     setText('');
+    setMentions([]);
+    setMentionSearch(null);
+    setMentionSuggestions([]);
     try {
       await addDoc(collection(db, 'posts', postId, 'comments'), {
         userId: user.id,
@@ -109,9 +157,13 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
         verified: user.verified ?? false,
         goldVerified: user.goldVerified ?? false,
         content,
+        mentionedUsers: activeMentions,
         createdAt: new Date().toISOString(),
       });
       await updateDoc(doc(db, 'posts', postId), { comments: increment(1) });
+      if (activeMentions.length) {
+        sendMentionNotifications(activeMentions, user.username, content);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -196,11 +248,29 @@ export default function CommentsModal({ visible, postId, onClose }: Props) {
                         </TouchableOpacity>
                       )}
                     </View>
-                    <Text style={styles.commentText}>{item.content}</Text>
+                    <Text style={styles.commentText}>
+                      {renderWithMentions(item.content, item.mentionedUsers, goToProfile)}
+                    </Text>
                   </View>
                 </View>
               )}
             />
+          )}
+
+          {/* Suggestions @mention */}
+          {user && mentionSuggestions.length > 0 && (
+            <View style={styles.mentionBox}>
+              {mentionSuggestions.map(u => (
+                <TouchableOpacity key={u.id} style={styles.mentionRow} onPress={() => selectMention(u)} activeOpacity={0.75}>
+                  <View style={styles.mentionAvatar}>
+                    {u.photoBase64
+                      ? <Image source={{ uri: `data:image/jpeg;base64,${u.photoBase64}` }} style={styles.mentionAvatarImg} />
+                      : <Text style={{ fontSize: 14 }}>{u.avatar}</Text>}
+                  </View>
+                  <Text style={styles.mentionUsername}>@{u.username}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
 
           {/* Input */}
@@ -380,6 +450,32 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     lineHeight: 20,
   },
+  mentionBox: {
+    marginHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    overflow: 'hidden',
+  },
+  mentionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.background,
+  },
+  mentionAvatar: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: Colors.surfaceLight,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  mentionAvatarImg: { width: 30, height: 30, borderRadius: 15 },
+  mentionUsername: { color: Colors.text, fontSize: 14, fontWeight: '600' },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',

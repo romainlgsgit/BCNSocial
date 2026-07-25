@@ -16,11 +16,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
 import { PostTag } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { searchUsersByPrefix } from '../utils/mentions';
 
 const MAX_LENGTH = 500;
 // Format de l'image gardé tel quel, juste borné pour éviter les extrêmes
@@ -66,21 +65,17 @@ export default function CreatePostModal({ visible, onClose, onSubmit, isPremium 
     }
   }, [content]);
 
-  // Chercher les utilisateurs correspondants
+  // Chercher les utilisateurs correspondants — recherche par PRÉFIXE, insensible à la
+  // casse (cf. searchUsersByPrefix), avec un petit debounce pour limiter les lectures.
   useEffect(() => {
-    if (!mentionSearch || mentionSearch.length < 1) { setMentionSuggestions([]); return; }
-    const search = mentionSearch.toLowerCase();
-    getDocs(query(
-      collection(db, 'users'),
-      where('username', '>=', search),
-      where('username', '<=', search + ''),
-      limit(5)
-    )).then(snap => {
-      const results: MentionUser[] = snap.docs
-        .filter(d => d.id !== user?.id)
-        .map(d => ({ id: d.id, username: d.data().username, avatar: d.data().avatar, photoBase64: d.data().photoBase64 }));
-      setMentionSuggestions(results);
-    }).catch(() => {});
+    if (!mentionSearch || mentionSearch.trim().length < 1) { setMentionSuggestions([]); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      searchUsersByPrefix(mentionSearch, user?.id)
+        .then(res => { if (!cancelled) setMentionSuggestions(res); })
+        .catch(() => {});
+    }, 220);
+    return () => { cancelled = true; clearTimeout(t); };
   }, [mentionSearch]);
 
   const selectMention = (mentioned: MentionUser) => {

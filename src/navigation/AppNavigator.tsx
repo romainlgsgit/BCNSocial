@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Image } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { NavigationContainerRef } from '@react-navigation/native';
@@ -18,7 +18,9 @@ import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import AdminScreen from '../screens/AdminScreen';
 import UserProfileScreen from '../screens/UserProfileScreen';
+import PlayerProfileScreen from '../screens/PlayerProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import HelpScreen from '../screens/HelpScreen';
 import AuthScreen from '../screens/AuthScreen';
 import { useAuth } from '../context/AuthContext';
 import { Colors } from '../theme';
@@ -45,7 +47,9 @@ export type RootStackParamList = {
   MainTabs: undefined;
   Admin: undefined;
   UserProfile: { userId: string };
+  PlayerProfile: { playerId: string };
   Settings: undefined;
+  Help: undefined;
   Banned: undefined;
   VerifyEmail: undefined;
 };
@@ -147,9 +151,20 @@ export default function AppNavigator({ navigationRef }: Props) {
   const { isAuthenticated, isLoading, banVerdict, needsEmailVerification } = useAuth();
 
   if (isLoading) {
+    // Raccord visuel avec le splash natif : même fond (#230731) et même logo, pour éviter
+    // le flash noir pendant la vérification de session. Le spinner reste, discret, en bas.
     return (
-      <View style={{ flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+      <View style={{ flex: 1, backgroundColor: '#230731' }}>
+        <Image
+          source={require('../../assets/splash-icon.png')}
+          style={{ flex: 1, width: '100%', height: '100%' }}
+          resizeMode="contain"
+        />
+        <ActivityIndicator
+          size="small"
+          color="#ffffff"
+          style={{ position: 'absolute', bottom: 90, alignSelf: 'center' }}
+        />
       </View>
     );
   }
@@ -198,8 +213,18 @@ export default function AppNavigator({ navigationRef }: Props) {
         options={{ presentation: 'card' }}
       />
       <Stack.Screen
+        name="PlayerProfile"
+        component={PlayerProfileScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
         name="Settings"
         component={SettingsScreen}
+        options={{ presentation: 'card' }}
+      />
+      <Stack.Screen
+        name="Help"
+        component={HelpScreen}
         options={{ presentation: 'card' }}
       />
     </Stack.Navigator>

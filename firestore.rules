@@ -78,6 +78,23 @@ service cloud.firestore {
       allow delete: if request.auth != null && request.auth.uid == resource.data.uid;
     }
 
+    // Achats de pièces (boutique) — doc ID = identifiant de transaction du store.
+    //
+    // C'est le registre qui rend le crédit IDEMPOTENT : le client n'incrémente le
+    // solde que si le doc n'existe pas encore, dans la même transaction. Interdire
+    // update/delete est donc essentiel — pouvoir effacer une entrée reviendrait à
+    // pouvoir se recréditer indéfiniment le même achat.
+    //
+    // La lecture reste ouverte aux comptes connectés : le crédit doit d'abord LIRE
+    // un doc qui n'existe pas encore, et une règle basée sur `resource.data` échoue
+    // sur un document absent — ce qui casserait tout achat. L'ID étant l'identifiant
+    // de transaction Apple, il n'y a rien à énumérer.
+    match /coinPurchases/{transactionId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+      allow update, delete: if false;
+    }
+
     // Config app (cotes, etc.)
     match /config/{docId} {
       allow read: if true;

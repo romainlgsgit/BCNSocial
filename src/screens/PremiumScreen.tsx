@@ -6,16 +6,17 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { PurchasesPackage } from 'react-native-purchases';
-import { usePremium, PRODUCT_IDS, FREE_DAILY_POST_LIMIT, PREMIUM_MONTHLY_COINS } from '../context/PremiumContext';
+import { usePremium, PRODUCT_IDS, FREE_DAILY_POST_LIMIT, PREMIUM_MONTHLY_COINS, PREMIUM_MONTHLY_DOLLARS, EXTRA_POST_COST } from '../context/PremiumContext';
 import { Colors, FontSize, BorderRadius, Spacing } from '../theme';
+import RulesModal from '../components/RulesModal';
 
 const FEATURES = [
   { icon: 'ban-outline',           label: 'Zéro publicité',                    desc: 'Profite de l\'app sans aucune interruption' },
   { icon: 'images-outline',        label: 'Partage des images',                 desc: 'Poste des photos dans le feed communautaire' },
-  { icon: 'infinite-outline',      label: 'Posts illimités',                    desc: `Sans Premium : ${FREE_DAILY_POST_LIMIT} posts max par jour` },
+  { icon: 'infinite-outline',      label: 'Posts illimités',                    desc: `Sans Premium : ${FREE_DAILY_POST_LIMIT} posts/jour, puis ${EXTRA_POST_COST} $/post` },
   { icon: 'checkmark-circle',      label: 'Badge certifié bleu',                desc: 'Affiché sur tous tes posts et ton profil' },
   { icon: 'wallet-outline',        label: `+${PREMIUM_MONTHLY_COINS} pièces/mois`, desc: 'Créditées automatiquement à chaque renouvellement' },
-  { icon: 'megaphone-outline',     label: '1 post mis en avant / jour',         desc: 'Booste la visibilité d\'un de tes posts chaque jour' },
+  { icon: 'cash-outline',          label: `+${PREMIUM_MONTHLY_DOLLARS} $/mois`,     desc: 'Crédités automatiquement à chaque renouvellement' },
 ];
 
 function PlanCard({
@@ -73,6 +74,7 @@ export default function PremiumScreen({ visible, onClose }: Props) {
   const [selectedPkg, setSelectedPkg] = useState<PurchasesPackage | null>(null);
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [rulesVisible, setRulesVisible] = useState(false);
 
   const monthlyPkg = packages.find(p => p.product.identifier === PRODUCT_IDS.monthly);
   const annualPkg  = packages.find(p => p.product.identifier === PRODUCT_IDS.annual);
@@ -218,7 +220,7 @@ export default function PremiumScreen({ visible, onClose }: Props) {
 
                   <Text style={styles.legalText}>
                     L'abonnement se renouvelle automatiquement. Tu peux annuler à tout moment depuis les réglages Apple.{' '}
-                    <Text style={styles.legalLink} onPress={() => Linking.openURL('https://romainlgsgit.github.io/BCNSocial/privacy.html')}>
+                    <Text style={styles.legalLink} onPress={() => setRulesVisible(true)}>
                       Politique de confidentialité
                     </Text>
                     {' · '}
@@ -241,6 +243,7 @@ export default function PremiumScreen({ visible, onClose }: Props) {
           <View style={{ height: 40 }} />
         </ScrollView>
       </View>
+      <RulesModal visible={rulesVisible} onClose={() => setRulesVisible(false)} />
     </Modal>
   );
 }

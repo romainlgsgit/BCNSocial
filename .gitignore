@@ -48,3 +48,7 @@ functions/lib/
 
 # Claude Code local config
 .claude/
+
+# Clés de service Firebase Admin — accès admin total, JAMAIS committer
+*-firebase-adminsdk-*.json
+**/serviceAccount*.json

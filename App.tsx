@@ -11,6 +11,7 @@ import { PronoProvider } from './src/context/PronoContext';
 import { QuizProvider } from './src/context/QuizContext';
 import { PlayersProvider } from './src/context/PlayersContext';
 import { PremiumProvider, usePremium } from './src/context/PremiumContext';
+import { StoreProvider, useStore } from './src/context/StoreContext';
 import { RatingsProvider } from './src/context/RatingsContext';
 import { FollowProvider } from './src/context/FollowContext';
 import { GameProvider } from './src/context/GameContext';
@@ -18,13 +19,20 @@ import { BlockProvider } from './src/context/BlockContext';
 import { ModerationProvider } from './src/context/ModerationContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import PremiumScreen from './src/screens/PremiumScreen';
+import StoreScreen from './src/screens/StoreScreen';
 import { registerPushToken } from './src/utils/notifications';
 import { resolveAttGate } from './src/utils/attGate';
 import { APPLOVIN_SDK_KEY, ADS_CONFIGURED } from './src/config/ads';
 
 function GlobalModals() {
   const { showPremiumScreen, closePremiumScreen } = usePremium();
-  return <PremiumScreen visible={showPremiumScreen} onClose={closePremiumScreen} />;
+  const { showStore, closeStore } = useStore();
+  return (
+    <>
+      <PremiumScreen visible={showPremiumScreen} onClose={closePremiumScreen} />
+      <StoreScreen visible={showStore} onClose={closeStore} />
+    </>
+  );
 }
 
 function AppWithProviders() {
@@ -73,28 +81,30 @@ function AppWithProviders() {
 
   return (
     <PremiumProvider userId={user?.id} authReady={!authLoading}>
-      <PlayersProvider>
-        <MatchProvider>
-          <PronoProvider>
-            <QuizProvider>
-              <RatingsProvider>
-                <FollowProvider>
-                  <GameProvider>
-                    <BlockProvider currentUserId={user?.id}>
-                      <ModerationProvider>
-                        <NavigationContainer>
-                          <AppNavigator />
-                        </NavigationContainer>
-                        <GlobalModals />
-                      </ModerationProvider>
-                    </BlockProvider>
-                  </GameProvider>
-                </FollowProvider>
-              </RatingsProvider>
-            </QuizProvider>
-          </PronoProvider>
-        </MatchProvider>
-      </PlayersProvider>
+      <StoreProvider userId={user?.id}>
+        <PlayersProvider>
+          <MatchProvider>
+            <PronoProvider>
+              <QuizProvider>
+                <RatingsProvider>
+                  <FollowProvider>
+                    <GameProvider>
+                      <BlockProvider currentUserId={user?.id}>
+                        <ModerationProvider>
+                          <NavigationContainer>
+                            <AppNavigator />
+                          </NavigationContainer>
+                          <GlobalModals />
+                        </ModerationProvider>
+                      </BlockProvider>
+                    </GameProvider>
+                  </FollowProvider>
+                </RatingsProvider>
+              </QuizProvider>
+            </PronoProvider>
+          </MatchProvider>
+        </PlayersProvider>
+      </StoreProvider>
     </PremiumProvider>
   );
 }

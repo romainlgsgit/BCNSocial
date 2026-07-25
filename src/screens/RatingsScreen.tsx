@@ -8,6 +8,7 @@ import {
   StatusBar,
   Image,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { usePlayers } from '../context/PlayersContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Spacing, FontSize, BorderRadius } from '../theme';
@@ -84,15 +85,17 @@ function SeasonPlayerCard({
   player,
   rank,
   stats,
+  onPress,
 }: {
   player: Player;
   rank: number;
   stats?: PlayerStats;
+  onPress: () => void;
 }) {
   const isTop = rank <= 3;
   const hasRealVotes = stats && stats.totalVotes > 0;
   return (
-    <View style={styles.playerCard}>
+    <TouchableOpacity style={styles.playerCard} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.rankBlock}>
         {isTop ? (
           <View style={[styles.rankBadge, { backgroundColor: rank === 1 ? '#FFD700' : rank === 2 ? '#C0C0C0' : '#CD7F32' }]}>
@@ -135,7 +138,9 @@ function SeasonPlayerCard({
           <Text style={styles.playerVotes}>Pas encore noté</Text>
         )}
       </View>
-    </View>
+
+      <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+    </TouchableOpacity>
   );
 }
 
@@ -182,6 +187,7 @@ function NextMatchCard({ match }: { match: Match }) {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function RatingsScreen() {
+  const navigation = useNavigation<any>();
   const [activePosition, setActivePosition] = useState<Position>('Tous');
   const { getLineup, playerStats } = useRatings();
   const { players: PLAYERS } = usePlayers();
@@ -287,6 +293,7 @@ export default function RatingsScreen() {
               player={player}
               rank={idx + 1}
               stats={playerStats[player.id]}
+              onPress={() => navigation.navigate('PlayerProfile', { playerId: player.id })}
             />
           ))}
         </View>
