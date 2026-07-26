@@ -26,6 +26,8 @@
         "NSPrivacyCollectedDataTypes": []
       },
       "infoPlist": {
+        "CFBundleDevelopmentRegion": "fr",
+        "CFBundleLocalizations": ["fr"],
         "ITSAppUsesNonExemptEncryption": false,
         "GADApplicationIdentifier": "ca-app-pub-1040134367659445~4644102991",
         "NSUserTrackingUsageDescription": "Cette autorisation permet d'afficher des publicités plus pertinentes pour soutenir l'application.",
