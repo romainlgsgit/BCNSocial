@@ -3,8 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BCNSocial — L'app des fans du Barça</title>
-  <meta name="description" content="BCNSocial est l'application communautaire pour les fans du FC Barcelona. Feed social, pronostics, notation des joueurs, quiz et bien plus." />
+  <title>BCN Social — L'app des fans du Barça</title>
+  <meta name="description" content="BCN Social est disponible sur l'App Store. L'application communautaire des fans du FC Barcelona : feed social, pronostics, notation des joueurs, quiz, jeux 1v1 et bien plus." />
+
+  <!-- Aperçu quand le lien est partagé (Instagram, WhatsApp, iMessage...) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="BCN Social — maintenant disponible" />
+  <meta property="og:description" content="L'application communautaire des fans du FC Barcelona. Télécharge-la gratuitement sur l'App Store." />
+  <meta property="og:url" content="https://romainlgsgit.github.io/BCNSocial/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#0a0a0a" />
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -18,11 +27,14 @@
       --muted: #888;
     }
 
+    html { scroll-behavior: smooth; }
+
     body {
       background: var(--dark);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
 
     /* HERO */
@@ -33,7 +45,7 @@
       align-items: center;
       justify-content: center;
       text-align: center;
-      padding: 40px 24px;
+      padding: 56px 24px;
       background: radial-gradient(ellipse at top, #001a40 0%, var(--dark) 70%);
       position: relative;
       overflow: hidden;
@@ -48,21 +60,48 @@
       pointer-events: none;
     }
 
+    .hero > * { position: relative; }
+
     .badge {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       background: linear-gradient(135deg, var(--blaugrana), var(--blau));
       color: #fff;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 2px;
       text-transform: uppercase;
-      padding: 6px 16px;
+      padding: 7px 18px;
       border-radius: 99px;
+      margin-bottom: 28px;
+    }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4ade80;
+      box-shadow: 0 0 0 0 rgba(74,222,128,.7);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(74,222,128,.7); }
+      70%  { box-shadow: 0 0 0 8px rgba(74,222,128,0); }
+      100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
+    }
+
+    .app-icon {
+      width: 104px;
+      height: 104px;
+      border-radius: 24px;
       margin-bottom: 24px;
+      box-shadow: 0 18px 45px rgba(0,0,0,.6);
+      border: 1px solid rgba(255,255,255,.08);
     }
 
     .logo {
-      font-size: clamp(48px, 10vw, 96px);
+      font-size: clamp(44px, 10vw, 92px);
       font-weight: 900;
       letter-spacing: -2px;
       line-height: 1;
@@ -73,11 +112,17 @@
       background-clip: text;
     }
 
+    .headline {
+      font-size: clamp(20px, 4.4vw, 30px);
+      font-weight: 800;
+      margin-top: 14px;
+    }
+
     .tagline {
-      font-size: clamp(16px, 3vw, 22px);
+      font-size: clamp(15px, 3vw, 19px);
       color: var(--muted);
       max-width: 480px;
-      margin: 16px auto 40px;
+      margin: 14px auto 36px;
     }
 
     .cta-group {
@@ -85,29 +130,47 @@
       gap: 12px;
       flex-wrap: wrap;
       justify-content: center;
+      align-items: center;
     }
 
-    .btn {
+    /* Bouton App Store */
+    .btn-appstore {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 14px 28px;
-      border-radius: 12px;
+      gap: 12px;
+      background: #fff;
+      color: #000;
+      padding: 12px 26px 12px 22px;
+      border-radius: 14px;
+      text-decoration: none;
+      transition: transform .15s ease, box-shadow .15s ease;
+      box-shadow: 0 10px 30px rgba(255,255,255,.12);
+    }
+    .btn-appstore:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(255,255,255,.2); }
+    .btn-appstore svg { width: 28px; height: 28px; flex-shrink: 0; }
+    .btn-appstore .as-text { text-align: left; line-height: 1.15; }
+    .btn-appstore .as-small { display: block; font-size: 11px; font-weight: 500; opacity: .7; }
+    .btn-appstore .as-big { display: block; font-size: 19px; font-weight: 700; letter-spacing: -.3px; }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      padding: 14px 26px;
+      border-radius: 14px;
       font-size: 15px;
       font-weight: 600;
       text-decoration: none;
-      transition: transform .15s, opacity .15s;
-    }
-    .btn:hover { transform: translateY(-2px); opacity: .9; }
-
-    .btn-primary {
-      background: linear-gradient(135deg, var(--blaugrana), #7a0033);
-      color: #fff;
-    }
-    .btn-secondary {
-      background: #1e1e1e;
+      background: rgba(255,255,255,.05);
       color: var(--text);
-      border: 1px solid #2a2a2a;
+      border: 1px solid rgba(255,255,255,.1);
+      transition: background .15s, transform .15s;
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,.1); transform: translateY(-2px); }
+
+    .hint {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #666;
     }
 
     /* FEATURES */
@@ -121,7 +184,7 @@
       font-size: clamp(24px, 4vw, 36px);
       font-weight: 800;
       text-align: center;
-      margin-bottom: 48px;
+      margin-bottom: 20px;
     }
 
     .features {
@@ -139,21 +202,9 @@
     }
     .feature-card:hover { border-color: #333; transform: translateY(-3px); }
 
-    .feature-icon {
-      font-size: 32px;
-      margin-bottom: 12px;
-    }
-
-    .feature-title {
-      font-size: 17px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .feature-desc {
-      font-size: 14px;
-      color: var(--muted);
-    }
+    .feature-icon { font-size: 32px; margin-bottom: 12px; }
+    .feature-title { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+    .feature-desc { font-size: 14px; color: var(--muted); }
 
     /* DIVIDER */
     .divider {
@@ -164,22 +215,22 @@
       margin: 0 auto 48px;
     }
 
-    /* STACK */
-    .stack-grid {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      justify-content: center;
+    /* CTA FINAL */
+    .final-cta {
+      text-align: center;
+      padding: 72px 24px 88px;
+      background: radial-gradient(ellipse at bottom, #1a0020 0%, var(--dark) 70%);
+      border-top: 1px solid #131313;
     }
-
-    .stack-pill {
-      background: #1a1a1a;
-      border: 1px solid #252525;
-      border-radius: 99px;
-      padding: 8px 18px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #ccc;
+    .final-cta h2 {
+      font-size: clamp(22px, 4.5vw, 34px);
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .final-cta p {
+      color: var(--muted);
+      margin-bottom: 32px;
+      font-size: 15px;
     }
 
     /* FOOTER */
@@ -207,6 +258,11 @@
         var(--or) 100%
       );
     }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+      html { scroll-behavior: auto; }
+    }
   </style>
 </head>
 <body>
@@ -214,13 +270,26 @@
   <div class="strip"></div>
 
   <section class="hero">
-    <span class="badge">Comunitat Culer</span>
-    <div class="logo">BCNSocial</div>
-    <p class="tagline">L'application communautaire pour les fans du FC Barcelona. Vis le foot autrement.</p>
+    <span class="badge"><span class="dot"></span> Maintenant disponible</span>
+    <img class="app-icon" src="./icon.png" alt="Icône de l'application BCN Social" />
+    <div class="logo">BCN Social</div>
+    <p class="headline">L'app des fans du Barça est enfin là ⚽</p>
+    <p class="tagline">Feed social, pronostics, notes des joueurs, quiz et jeux 1v1. Tout pour vivre le Barça avec les autres culers.</p>
+
     <div class="cta-group">
-      <a href="#features" class="btn btn-primary">Découvrir l'app</a>
-      <a href="https://github.com/romainlgsgit/BCNSocial" class="btn btn-secondary" target="_blank">GitHub</a>
+      <a class="btn-appstore" href="https://apps.apple.com/app/id6788364700" target="_blank" rel="noopener">
+        <svg viewBox="0 0 384 512" fill="currentColor" aria-hidden="true">
+          <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/>
+        </svg>
+        <span class="as-text">
+          <span class="as-small">Télécharger dans l'</span>
+          <span class="as-big">App Store</span>
+        </span>
+      </a>
+      <a class="btn-ghost" href="#features">Découvrir l'app</a>
     </div>
+
+    <p class="hint">Gratuit · Achats intégrés · iPhone · iOS 15.1 ou version ultérieure</p>
   </section>
 
   <section class="section" id="features">
@@ -250,33 +319,34 @@
       <div class="feature-card">
         <div class="feature-icon">🧠</div>
         <div class="feature-title">Quiz Barça</div>
-        <div class="feature-desc">Teste tes connaissances sur l'histoire et l'effectif du FC Barcelona.</div>
+        <div class="feature-desc">Teste tes connaissances et enchaîne les séries pour débloquer des badges.</div>
       </div>
       <div class="feature-card">
-        <div class="feature-icon">👤</div>
-        <div class="feature-title">Profils & Follow</div>
-        <div class="feature-desc">Abonne-toi à d'autres fans, suis leur activité et gère ton profil.</div>
+        <div class="feature-icon">🎮</div>
+        <div class="feature-title">Jeux 1v1</div>
+        <div class="feature-desc">Défie d'autres fans en duel : Football 1v1 et Tirs au But.</div>
       </div>
     </div>
   </section>
 
-  <section class="section" style="padding-top: 0;">
-    <h2 class="section-title">Stack technique</h2>
-    <div class="divider"></div>
-    <div class="stack-grid">
-      <span class="stack-pill">React Native</span>
-      <span class="stack-pill">Expo</span>
-      <span class="stack-pill">TypeScript</span>
-      <span class="stack-pill">Firebase</span>
-      <span class="stack-pill">Firestore</span>
-      <span class="stack-pill">React Navigation</span>
-      <span class="stack-pill">Cloud Functions</span>
-      <span class="stack-pill">Expo Notifications</span>
+  <section class="final-cta">
+    <h2>Rejoins la communauté culer</h2>
+    <p>Télécharge BCN Social gratuitement et commence à jouer.</p>
+    <div class="cta-group">
+      <a class="btn-appstore" href="https://apps.apple.com/app/id6788364700" target="_blank" rel="noopener">
+        <svg viewBox="0 0 384 512" fill="currentColor" aria-hidden="true">
+          <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/>
+        </svg>
+        <span class="as-text">
+          <span class="as-small">Télécharger dans l'</span>
+          <span class="as-big">App Store</span>
+        </span>
+      </a>
     </div>
   </section>
 
   <footer>
-    <p>© 2026 BCNSocial · <a href="https://github.com/romainlgsgit/BCNSocial" target="_blank">GitHub</a> · <a href="./privacy.html">Politique de confidentialité</a> · Tous droits réservés</p>
+    <p>© 2026 BCN Social · <a href="./privacy.html">Politique de confidentialité</a> · <a href="mailto:legrosromainpro@gmail.com">Contact</a></p>
     <p style="margin-top:8px;">Visça el Barça 💙❤️</p>
   </footer>
 
