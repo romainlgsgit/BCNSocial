@@ -230,8 +230,6 @@
     .btn-ghost:hover svg { transform: translateY(2px); }
 
     .hint { margin-top: 18px; font-size: 13px; color: var(--dim); }
-    .inapp-only { display: none; }
-    body.is-inapp .inapp-only { display: block; }
 
     .hero-meta { display: flex; gap: 28px; margin-top: 44px; padding-top: 26px; border-top: 1px solid var(--line); max-width: 500px; }
     .hero-meta div { font-size: 13px; color: var(--muted); line-height: 1.35; }
@@ -702,30 +700,6 @@
     [data-reveal].in { opacity: 1; transform: none; }
     .hero [data-reveal] { transition-duration: 1.1s; }
 
-    /* ───────── BANNIÈRE NAVIGATEUR INTÉGRÉ (Instagram, TikTok, Snap...) ───────── */
-    .inapp-bar {
-      display: none;
-      position: sticky; top: 0; z-index: 100;
-      background: linear-gradient(135deg, var(--or), #f5d033);
-      color: #1a1400;
-      padding: 14px 16px;
-      text-align: center;
-      font-size: 14px; line-height: 1.45;
-      box-shadow: 0 6px 24px rgba(0,0,0,.5);
-    }
-    .inapp-bar.show { display: block; }
-    .inapp-bar strong { font-weight: 800; }
-    .inapp-bar .inapp-steps { display: block; margin-top: 4px; font-size: 13px; opacity: .85; }
-    .inapp-copy {
-      margin-top: 10px;
-      background: #1a1400; color: var(--or);
-      border: 0; border-radius: 10px;
-      padding: 9px 18px;
-      font-size: 13px; font-weight: 700; font-family: inherit;
-      cursor: pointer;
-    }
-    .inapp-copy:active { opacity: .75; }
-    body.is-inapp .nav { top: 0; position: relative; }
 
     /* ───────── RESPONSIVE ───────── */
     @media (max-width: 1080px) {
@@ -811,12 +785,6 @@
 </head>
 <body>
 
-  <div class="inapp-bar" id="inappBar">
-    <strong id="inappTitle">Ouvre cette page dans ton navigateur</strong>
-    <span class="inapp-steps" id="inappSteps"></span>
-    <button class="inapp-copy" id="inappCopy" type="button">Copier le lien</button>
-  </div>
-
   <div class="strip"></div>
 
   <!-- ═════════ NAV ═════════ -->
@@ -874,7 +842,6 @@
             </a>
           </div>
           <p class="hint" data-reveal style="--d:.3s">Gratuit · Achats intégrés · iPhone · iOS 15.1 ou ultérieur</p>
-          <p class="hint inapp-only" style="color:var(--or);">Le bouton ne réagit pas ? Ouvre la page dans ton navigateur (voir le bandeau en haut).</p>
 
           <div class="hero-meta" data-reveal style="--d:.36s">
             <div><b>Direct</b>Notif à chaque but</div>
@@ -1276,14 +1243,13 @@
   })();
   </script>
 
-  <!-- Navigateurs intégrés (Instagram, TikTok…) : inchangé -->
+  <!-- Navigateurs intégrés (Instagram, TikTok…) : ouverture directe de l'App Store sur iOS -->
   <script>
   (function () {
     var APP_ID = '6788364700';
     var ua = navigator.userAgent || '';
 
     var isIOS = /iPhone|iPad|iPod/i.test(ua);
-    var isAndroid = /Android/i.test(ua);
 
     // Navigateurs intégrés qui bloquent l'ouverture de l'App Store
     var inApp =
@@ -1295,56 +1261,6 @@
       /LinkedInApp/i.test(ua) ||
       /Pinterest/i.test(ua) ||
       /\bLine\//i.test(ua);
-
-    var appName =
-      /Instagram/i.test(ua) ? 'Instagram' :
-      /TikTok|BytedanceWebview|musical_ly/i.test(ua) ? 'TikTok' :
-      /Snapchat/i.test(ua) ? 'Snapchat' :
-      /FBAN|FBAV|FB_IAB|FBIOS/i.test(ua) ? 'Facebook' : null;
-
-    if (inApp) {
-      document.body.classList.add('is-inapp');
-
-      var bar = document.getElementById('inappBar');
-      var title = document.getElementById('inappTitle');
-      var steps = document.getElementById('inappSteps');
-
-      title.textContent = appName
-        ? 'Le téléchargement ne marche pas depuis ' + appName
-        : 'Ouvre cette page dans ton navigateur';
-
-      steps.textContent = isAndroid
-        ? 'Appuie sur ⋮ en haut à droite, puis « Ouvrir dans Chrome ».'
-        : 'Appuie sur ••• en haut à droite, puis « Ouvrir dans le navigateur ».';
-
-      bar.classList.add('show');
-
-      // Bouton copier le lien (secours si le menu est introuvable)
-      var copyBtn = document.getElementById('inappCopy');
-      copyBtn.addEventListener('click', function () {
-        var url = window.location.href.split('?')[0];
-        var done = function () {
-          copyBtn.textContent = 'Lien copié ✓';
-          setTimeout(function () { copyBtn.textContent = 'Copier le lien'; }, 2500);
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(done, fallbackCopy);
-        } else {
-          fallbackCopy();
-        }
-        function fallbackCopy() {
-          var ta = document.createElement('textarea');
-          ta.value = url;
-          ta.setAttribute('readonly', '');
-          ta.style.cssText = 'position:absolute;left:-9999px;';
-          document.body.appendChild(ta);
-          ta.select();
-          ta.setSelectionRange(0, ta.value.length);
-          try { document.execCommand('copy'); done(); } catch (e) { /* rien à faire */ }
-          document.body.removeChild(ta);
-        }
-      });
-    }
 
     // Sur iOS en navigateur intégré : tenter le schéma App Store,
     // que le système peut ouvrir même si le lien web est bloqué.
