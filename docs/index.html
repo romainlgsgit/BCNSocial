@@ -197,7 +197,7 @@
     .lead { font-size: clamp(16px, 1.6vw, 19px); color: var(--muted); max-width: 500px; }
     .lead strong { color: var(--text); font-weight: 600; }
 
-    .cta-group { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 34px; }
+    .cta-group { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; margin-top: 34px; } /* flex-start : le lien sous le bouton Android ne décale pas les autres */
 
     .btn-appstore {
       display: inline-flex; align-items: center; gap: 12px;
@@ -238,7 +238,8 @@
 
     .hint { margin-top: 18px; font-size: 13px; color: var(--dim); }
     /* lien vers le guide d'installation Android (android.html) */
-    .apk-help { display: inline-block; margin-top: 10px; font-size: 14px; font-weight: 600; color: #3DDC84; text-decoration: none; border-bottom: 1px solid rgba(61,220,132,.35); }
+    .android-col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .apk-help { display: inline-block; font-size: 13.5px; font-weight: 600; color: #3DDC84; text-decoration: none; border-bottom: 1px solid rgba(61,220,132,.35); }
     .apk-help:hover { border-bottom-color: #3DDC84; }
 
     .hero-meta { display: flex; gap: 28px; margin-top: 44px; padding-top: 26px; border-top: 1px solid var(--line); max-width: 500px; }
@@ -846,6 +847,7 @@
                 <span class="as-big">App Store</span>
               </span>
             </a>
+            <div class="android-col">
             <a class="btn-appstore btn-android js-android is-locked" role="link" aria-disabled="true">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.14c-1.77 0-3.43.38-4.92 1L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/>
@@ -855,13 +857,14 @@
                 <span class="as-big js-android-big">Bientôt</span>
               </span>
             </a>
+              <a class="apk-help" href="./android.html">Comment installer l'APK ? →</a>
+            </div>
             <a class="btn-ghost" href="#app">
               Découvrir
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
             </a>
           </div>
           <p class="hint" data-reveal style="--d:.3s">Gratuit · Achats intégrés · iPhone (iOS 15.1+) · <span class="js-android-hint">Android (APK) le vendredi 30 octobre à 18 h</span></p>
-          <a class="apk-help" href="./android.html" data-reveal style="--d:.32s">Android : comment installer l'APK ? →</a>
 
           <div class="hero-meta" data-reveal style="--d:.36s">
             <div><b>Direct</b>Notif à chaque but</div>
@@ -1106,6 +1109,7 @@
               <span class="as-big">App Store</span>
             </span>
           </a>
+          <div class="android-col">
           <a class="btn-appstore btn-android js-android is-locked" role="link" aria-disabled="true">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.14c-1.77 0-3.43.38-4.92 1L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/>
@@ -1115,8 +1119,9 @@
               <span class="as-big js-android-big">Bientôt</span>
             </span>
           </a>
+            <a class="apk-help" href="./android.html">Comment installer l'APK ? →</a>
+          </div>
         </div>
-        <a class="apk-help" href="./android.html">Android : comment installer l'APK ? →</a>
       </div>
     </section>
   </main>
