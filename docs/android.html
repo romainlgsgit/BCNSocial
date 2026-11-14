@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Installer BCN Social sur Android</title>
+  <meta name="description" content="Comment installer l'APK de BCN Social sur Android : télécharger le fichier, autoriser l'installation d'applis inconnues, installer et se connecter." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Installer BCN Social sur Android" />
+  <meta property="og:description" content="Le guide pas à pas pour installer l'APK officiel de BCN Social." />
+  <meta property="og:url" content="https://romainlgsgit.github.io/BCNSocial/android.html" />
+  <meta name="theme-color" content="#07060b" />
+  <link rel="icon" href="./icon.png" />
+  <link rel="apple-touch-icon" href="./icon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --grana: #c8104f;
+      --blau-hi: #1f6fe0;
+      --green: #3DDC84;
+      --bg: #07060b;
+      --bg-2: #0d0b14;
+      --card: #12101a;
+      --line: rgba(255,255,255,.08);
+      --line-2: rgba(255,255,255,.14);
+      --text: #f4f2f7;
+      --muted: #9a97a6;
+      --dim: #6c6979;
+      --radius: 22px;
+      --display: 'Archivo', 'Inter', system-ui, sans-serif;
+      --body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --ease: cubic-bezier(.2,.7,.1,1);
+      --gutter: clamp(16px, 4vw, 40px);
+    }
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+    body {
+      background: var(--bg); color: var(--text); font-family: var(--body);
+      line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden;
+    }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+      background:
+        radial-gradient(700px 500px at 100% -5%, rgba(200,16,79,.22), transparent 70%),
+        radial-gradient(650px 520px at -10% 10%, rgba(31,111,224,.18), transparent 70%),
+        radial-gradient(600px 400px at 50% 110%, rgba(61,220,132,.08), transparent 70%);
+    }
+    a { color: inherit; }
+    .wrap { max-width: 780px; margin: 0 auto; padding: 0 var(--gutter); }
+
+    /* en-tête */
+    .top { padding: 22px 0; }
+    .top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--display); font-weight: 800; font-stretch: 110%; letter-spacing: -.02em; }
+    .brand img { width: 34px; height: 34px; border-radius: 9px; }
+    .back { font-size: 14px; color: var(--muted); text-decoration: none; }
+    .back:hover { color: var(--text); }
+
+    /* titre */
+    .hero { padding: 40px 0 28px; }
+    .kicker { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--green); }
+    .kicker svg { width: 18px; height: 18px; }
+    h1 { font-family: var(--display); font-weight: 850; font-stretch: 112%; font-size: clamp(34px, 6.4vw, 56px); line-height: 1.02; letter-spacing: -.035em; margin: 14px 0 16px; }
+    h1 em { font-style: normal; color: var(--green); }
+    .lead { font-size: clamp(16px, 2vw, 18px); color: var(--muted); max-width: 620px; }
+    .lead strong { color: var(--text); font-weight: 600; }
+
+    .reassure { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .reassure div { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; font-size: 13.5px; color: var(--muted); }
+    .reassure b { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 2px; }
+    @media (max-width: 620px) { .reassure { grid-template-columns: 1fr; } }
+
+    /* étapes */
+    .steps { list-style: none; counter-reset: step; padding: 18px 0 10px; }
+    .step { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 26px 26px 84px; margin-bottom: 16px; }
+    .step::before {
+      counter-increment: step; content: counter(step);
+      position: absolute; left: 24px; top: 24px; width: 40px; height: 40px; border-radius: 12px;
+      display: grid; place-items: center; font-family: var(--display); font-weight: 850; font-size: 20px;
+      background: rgba(61,220,132,.12); color: var(--green); box-shadow: inset 0 0 0 1px rgba(61,220,132,.3);
+    }
+    @media (max-width: 560px) {
+      .step { padding: 74px 18px 20px; }
+      .step::before { left: 18px; top: 20px; }
+    }
+    .step h2 { font-family: var(--display); font-weight: 800; font-stretch: 108%; font-size: 21px; letter-spacing: -.02em; margin-bottom: 8px; }
+    .step p { color: var(--muted); font-size: 15.5px; margin-bottom: 10px; }
+    .step p:last-child { margin-bottom: 0; }
+    .step strong { color: var(--text); font-weight: 600; }
+    .note { font-size: 14px !important; color: var(--dim) !important; }
+
+    /* bouton de téléchargement (même style que la page d'accueil) */
+    .btn-android {
+      display: inline-flex; align-items: center; gap: 12px; margin: 8px 0 12px;
+      background: #111; color: #fff; padding: 12px 24px 12px 20px; border-radius: 16px; text-decoration: none;
+      box-shadow: 0 12px 40px rgba(61,220,132,.16), inset 0 0 0 1px rgba(255,255,255,.16);
+      transition: transform .25s var(--ease), box-shadow .25s;
+    }
+    .btn-android:hover { transform: translateY(-2px); box-shadow: 0 18px 50px rgba(61,220,132,.28), inset 0 0 0 1px rgba(255,255,255,.24); }
+    .btn-android svg { width: 26px; height: 26px; color: var(--green); flex-shrink: 0; }
+    .btn-android .t { line-height: 1.12; }
+    .btn-android small { display: block; font-size: 11px; font-weight: 500; opacity: .65; }
+    .btn-android b { display: block; font-size: 19px; font-weight: 700; letter-spacing: -.02em; }
+    .btn-android.is-locked { cursor: default; }
+    .btn-android.is-locked:hover { transform: none; }
+    .btn-android.is-locked b { color: var(--green); font-variant-numeric: tabular-nums; }
+
+    /* reproduction d'une fenêtre d'Android : le bouton à toucher est en vert */
+    .dialog { margin: 14px 0 12px; max-width: 400px; background: #2a2930; border-radius: 26px; padding: 22px 22px 14px; box-shadow: 0 18px 40px rgba(0,0,0,.4); }
+    .dialog .d-title { font-size: 16.5px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+    .dialog .d-text { font-size: 14px; color: #c9c7d1; line-height: 1.5; margin: 0 0 12px; }
+    .dialog .d-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+    .dialog .d-btn { font-size: 14px; font-weight: 600; color: #a8c7fa; padding: 9px 12px; border-radius: 20px; }
+    .dialog .d-btn.tap { color: #04140B; background: var(--green); box-shadow: 0 0 0 4px rgba(61,220,132,.25); position: relative; }
+    .dialog .d-btn.tap::after { content: '👆'; position: absolute; right: -6px; bottom: -22px; font-size: 22px; }
+    .dialog .d-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0 6px; border-top: 1px solid rgba(255,255,255,.08); font-size: 14.5px; color: #fff; }
+    .switch { width: 46px; height: 26px; border-radius: 99px; background: var(--green); position: relative; flex-shrink: 0; box-shadow: 0 0 0 4px rgba(61,220,132,.25); }
+    .switch::after { content: ''; position: absolute; right: 3px; top: 3px; width: 20px; height: 20px; border-radius: 50%; background: #04140B; }
+    .dialog-cap { font-size: 12.5px; color: var(--dim); margin-top: -2px; }
+
+    /* chemins selon la marque */
+    details { background: rgba(255,255,255,.03); border: 1px solid var(--line); border-radius: 14px; margin-top: 12px; }
+    summary { cursor: pointer; padding: 13px 16px; font-size: 14.5px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 10px; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: '+'; color: var(--green); font-weight: 700; }
+    details[open] summary::after { content: '–'; }
+    details ul { list-style: none; padding: 0 16px 14px; }
+    details li { font-size: 14px; color: var(--muted); padding: 7px 0; border-top: 1px solid var(--line); }
+    details li b { color: var(--text); font-weight: 600; }
+    .path { color: var(--text); }
+
+    /* encadrés */
+    .callout { display: flex; gap: 14px; align-items: flex-start; background: rgba(61,220,132,.06); border: 1px solid rgba(61,220,132,.22); border-radius: 18px; padding: 18px 20px; margin: 10px 0 18px; }
+    .callout.warn { background: rgba(200,16,79,.07); border-color: rgba(200,16,79,.3); }
+    .callout .ic { font-size: 20px; line-height: 1.3; }
+    .callout p { font-size: 15px; color: var(--muted); }
+    .callout strong { color: var(--text); }
+
+    h3.sec { font-family: var(--display); font-weight: 800; font-stretch: 108%; font-size: 26px; letter-spacing: -.02em; margin: 40px 0 14px; }
+    .faq details { margin-top: 10px; }
+    .faq details p { padding: 0 16px 16px; font-size: 14.5px; color: var(--muted); }
+    .faq details p strong { color: var(--text); }
+
+    footer { margin-top: 56px; padding: 26px 0 40px; border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+    footer a { color: var(--muted); text-decoration: none; margin-left: 16px; }
+    footer a:first-child { margin-left: 0; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="./index.html"><img src="./icon.png" alt="" />BCN Social</a>
+      <a class="back" href="./index.html">← Retour au site</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <span class="kicker">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.14c-1.77 0-3.43.38-4.92 1L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg>
+        Guide d'installation
+      </span>
+      <h1>Installer BCN Social<br>sur <em>Android</em></h1>
+      <p class="lead">
+        Sur Android, BCN Social n'est pas sur le Play Store : l'app s'installe avec un <strong>fichier APK</strong>, téléchargé ici, sur le site officiel.
+        Comme pour toute app qui ne vient pas du Play Store, ton téléphone va afficher des avertissements et te demander une autorisation.
+        <strong>C'est normal</strong>, et ça prend 2 minutes. Suis le guide.
+      </p>
+      <div class="reassure">
+        <div><b>Gratuit</b>La même app que sur iPhone</div>
+        <div><b>Un seul compte</b>Tu retrouves ton profil, tes pièces et ton club</div>
+        <div><b>Mises à jour</b>La plupart arrivent toutes seules dans l'app</div>
+      </div>
+    </section>
+
+    <ol class="steps">
+      <li class="step">
+        <h2>Télécharge le fichier</h2>
+        <p>Depuis ton téléphone Android, touche le bouton ci-dessous. Le fichier fait environ <strong>210 Mo</strong> : le wifi est conseillé.</p>
+        <a class="btn-android js-android is-locked" role="link" aria-disabled="true">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.6 9.48l1.84-3.18a.38.38 0 0 0-.66-.38l-1.86 3.22A11.4 11.4 0 0 0 12 8.14c-1.77 0-3.43.38-4.92 1L5.22 5.92a.38.38 0 0 0-.66.38L6.4 9.48A10.8 10.8 0 0 0 1 18h22a10.8 10.8 0 0 0-5.4-8.52zM7 15.25a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5zm10 0a1.25 1.25 0 1 1 0-2.5 1.25 1.25 0 0 1 0 2.5z"/></svg>
+          <span class="t"><small class="js-android-small">Android · ven. 30 oct. à 18 h</small><b class="js-android-big">Bientôt</b></span>
+        </a>
+        <p>Ton navigateur (Chrome, Samsung Internet…) peut te prévenir que <em>« ce type de fichier peut être dangereux »</em>. Il le dit pour <strong>tous</strong> les APK : touche <strong>Télécharger quand même</strong>.</p>
+        <div class="dialog" aria-hidden="true">
+          <div class="d-title">Télécharger le fichier ?</div>
+          <p class="d-text">Ce type de fichier peut endommager votre appareil. Voulez-vous quand même télécharger bcn-social.apk ?</p>
+          <div class="d-actions"><span class="d-btn">Annuler</span><span class="d-btn tap">Télécharger quand même</span></div>
+        </div>
+        <p class="dialog-cap">Exemple : le texte exact change un peu selon le navigateur.</p>
+      </li>
+
+      <li class="step">
+        <h2>Ouvre le fichier téléchargé</h2>
+        <p>Une fois le téléchargement fini, touche <strong>Ouvrir</strong> dans la notification ou en bas de ton navigateur.</p>
+        <p>Tu l'as fermée ? Ouvre l'app <strong>Fichiers</strong> (ou <strong>Mes fichiers</strong> sur Samsung), va dans <strong>Téléchargements</strong> et touche <strong>bcn-social.apk</strong>.</p>
+      </li>
+
+      <li class="step">
+        <h2>Autorise l'installation</h2>
+        <p>La première fois, Android bloque l'installation et affiche un message du genre <em>« Pour des raisons de sécurité, votre téléphone n'est pas autorisé à installer des applis inconnues provenant de cette source »</em>. Touche <strong>Paramètres</strong>.</p>
+        <div class="dialog" aria-hidden="true">
+          <div class="d-title">Chrome</div>
+          <p class="d-text">Pour des raisons de sécurité, votre téléphone n'est pas autorisé à installer des applis inconnues provenant de cette source.</p>
+          <div class="d-actions"><span class="d-btn">Annuler</span><span class="d-btn tap">Paramètres</span></div>
+        </div>
+        <p>Sur l'écran qui s'ouvre, active <strong>Autoriser cette source</strong> (ou <em>« Autoriser à partir de cette source »</em>), puis reviens en arrière avec la flèche ou le geste retour.</p>
+        <div class="dialog" aria-hidden="true">
+          <div class="d-title">Installer des applis inconnues</div>
+          <div class="d-row">Autoriser cette source <span class="switch"></span></div>
+        </div>
+        <p class="note">L'autorisation ne vaut que pour l'app qui ouvre le fichier (Chrome, Mes fichiers…), pas pour tout le téléphone.</p>
+        <details>
+          <summary>Je ne trouve pas le réglage</summary>
+          <ul>
+            <li><b>La plupart des téléphones</b> : <span class="path">Paramètres › Applications › Accès spécial des applications › Installer des applis inconnues</span>, puis choisis Chrome (ou Fichiers) et active l'option.</li>
+            <li><b>Samsung</b> : <span class="path">Paramètres › Applications › ⋮ (en haut à droite) › Accès spécial › Installer applis inconnues</span>, puis Chrome, Samsung Internet ou Mes fichiers.</li>
+            <li><b>Xiaomi, Redmi, Poco</b> : <span class="path">Paramètres › Applications › Autorisations › Installer des applications inconnues</span>.</li>
+            <li><b>Oppo, Realme, OnePlus</b> : <span class="path">Paramètres › Applications › Accès spécial aux applis › Installer des applications inconnues</span>.</li>
+            <li><b>Huawei, Honor</b> : <span class="path">Paramètres › Sécurité › Plus de paramètres › Installer des applications de sources externes</span>.</li>
+            <li><b>Ancien Android (7 et avant)</b> : <span class="path">Paramètres › Sécurité › Sources inconnues</span>.</li>
+          </ul>
+        </details>
+      </li>
+
+      <li class="step">
+        <h2>Installe l'app</h2>
+        <p>De retour sur l'écran de l'app, touche <strong>Installer</strong>.</p>
+        <p>Google Play Protect peut afficher un dernier avertissement, car il ne connaît pas encore BCN Social : touche <strong>Plus de détails</strong> (ou la petite flèche), puis <strong>Installer quand même</strong>. S'il te propose d'envoyer l'appli pour analyse, tu peux accepter ou refuser, ça ne change rien.</p>
+        <div class="dialog" aria-hidden="true">
+          <div class="d-title">Appli bloquée pour protéger votre appareil</div>
+          <p class="d-text">Cette appli a été créée pour une ancienne version d'Android ou n'a pas encore été vérifiée par Play Protect.</p>
+          <div class="d-actions"><span class="d-btn">OK</span><span class="d-btn tap">Installer quand même</span></div>
+        </div>
+        <p class="dialog-cap">Exemple : selon ton téléphone, le titre et le texte varient.</p>
+      </li>
+
+      <li class="step">
+        <h2>Ouvre BCN Social et connecte-toi</h2>
+        <p>Touche <strong>Ouvrir</strong> : c'est fini ! Tu peux créer un compte, ou te connecter avec <strong>Google</strong> ou ton e-mail.</p>
+        <p>Tu as déjà un compte sur iPhone ? Connecte-toi avec le même : tu retrouves ton profil, tes pièces, tes pronos et ton club Draft Foot.</p>
+      </li>
+    </ol>
+
+    <div class="callout">
+      <span class="ic">🔒</span>
+      <p><strong>Une fois l'app installée, tu peux désactiver l'autorisation</strong> donnée à l'étape 3 : même chemin, et tu décoches. BCN Social reste installée et continue de recevoir ses mises à jour.</p>
+    </div>
+    <div class="callout warn">
+      <span class="ic">⚠️</span>
+      <p><strong>Télécharge BCN Social uniquement depuis ce site.</strong> Le seul fichier officiel est celui du bouton ci-dessus. Un APK trouvé ailleurs, sur un autre site ou envoyé par message, peut avoir été modifié.</p>
+    </div>
+
+    <h3 class="sec">Questions fréquentes</h3>
+    <div class="faq">
+      <details>
+        <summary>Pourquoi Android dit que c'est dangereux ?</summary>
+        <p>Android affiche ces messages pour <strong>toutes</strong> les apps qui ne viennent pas du Play Store, quelles qu'elles soient. Ça ne veut pas dire que l'app est dangereuse, juste qu'elle n'a pas été installée par le Play Store. BCN Social est la même app que celle de l'App Store.</p>
+      </details>
+      <details>
+        <summary>Pourquoi l'app n'est pas sur le Play Store ?</summary>
+        <p>Pour l'instant, BCN Social est distribuée sur Android directement depuis son site officiel, sous forme d'APK. Le contenu est exactement le même que sur iPhone.</p>
+      </details>
+      <details>
+        <summary>Comment j'aurai les mises à jour ?</summary>
+        <p>La plupart des nouveautés arrivent <strong>toutes seules</strong> : l'app se met à jour en arrière-plan, et c'est appliqué au prochain lancement. Pour les grosses mises à jour, on te préviendra : il suffira de retélécharger l'APK ici et de l'installer par-dessus. <strong>Pas besoin de désinstaller</strong>, et tu ne perds rien.</p>
+      </details>
+      <details>
+        <summary>« Application non installée » : que faire ?</summary>
+        <p>Vérifie d'abord qu'il te reste au moins <strong>500 Mo</strong> de stockage libre, puis réessaie. Si tu as installé une version de BCN Social qui ne vient pas de ce site, désinstalle-la d'abord, puis installe celle d'ici. Ton compte est en ligne : tu ne perds ni ton profil, ni tes pièces.</p>
+      </details>
+      <details>
+        <summary>Je ne retrouve pas le fichier téléchargé</summary>
+        <p>Ouvre l'app <strong>Fichiers</strong> (Google) ou <strong>Mes fichiers</strong> (Samsung), puis le dossier <strong>Téléchargements</strong>. Dans Chrome, tu peux aussi aller dans <strong>⋮ › Téléchargements</strong>.</p>
+      </details>
+      <details>
+        <summary>J'ai un iPhone</summary>
+        <p>Pas besoin de tout ça : BCN Social est sur l'<a href="https://apps.apple.com/app/id6788364700" rel="noopener">App Store</a>.</p>
+      </details>
+      <details>
+        <summary>Ça ne marche toujours pas</summary>
+        <p>Écris-nous à <a href="mailto:legrosromainpro@gmail.com">legrosromainpro@gmail.com</a> en précisant la marque et le modèle de ton téléphone, et une capture du message d'erreur si tu peux.</p>
+      </details>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© 2026 BCN Social · Visça el Barça 💙❤️</span>
+      <nav>
+        <a href="./index.html">Accueil</a>
+        <a href="./privacy.html">Confidentialité</a>
+        <a href="mailto:legrosromainpro@gmail.com">Contact</a>
+      </nav>
+    </div>
+  </footer>
+
+  <!-- Même verrou que la page d'accueil : le bouton devient un lien vers l'APK le vendredi
+       30 octobre 2026 à 18 h (Paris). Garder APK aligné sur index.html. -->
+  <script>
+  (function () {
+    var APK = 'https://github.com/romainlgsgit/BCNSocial/releases/download/android-2.1/bcn-social.apk';
+    var LAUNCH = Date.parse('2026-10-30T18:00:00+01:00');
+    var btns = document.querySelectorAll('.js-android');
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    var timer;
+    function unlock() {
+      Array.prototype.forEach.call(btns, function (a) {
+        a.classList.remove('is-locked');
+        a.removeAttribute('aria-disabled');
+        a.removeAttribute('role');
+        a.setAttribute('href', APK);
+        a.setAttribute('download', '');
+        a.setAttribute('rel', 'noopener');
+        a.querySelector('.js-android-small').textContent = 'Télécharger pour';
+        a.querySelector('.js-android-big').textContent = 'Android';
+      });
+    }
+    function tick() {
+      var left = LAUNCH - Date.now();
+      if (left <= 0) { clearInterval(timer); unlock(); return; }
+      var s = Math.floor(left / 1000);
+      var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+      var txt = (d > 0 ? d + ' j ' : '') + pad(h) + ' h ' + pad(m) + ' min ' + pad(s % 60) + ' s';
+      Array.prototype.forEach.call(btns, function (a) { a.querySelector('.js-android-big').textContent = txt; });
+    }
+    tick();
+    if (Date.now() < LAUNCH) timer = setInterval(tick, 1000);
+  })();
+  </script>
+</body>
+</html>
